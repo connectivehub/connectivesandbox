@@ -2,6 +2,8 @@
 // loading skeleton. On fixtures the prose is assembled from the latest judge
 // run; BACKEND: LLM-generated analysis from Phase 4.
 
+import { useState } from 'react'
+
 import type { DashboardPanel } from '@/engine/types'
 import { formatAnswerValue, formatPercent } from '@/lib/format'
 import { Skeleton } from '@/components/ui/Primitives'
@@ -11,6 +13,7 @@ export type AnalysisPanel = Extract<DashboardPanel, { type: 'analysis' }>
 
 export default function Analysis({ panel }: { panel: AnalysisPanel }) {
   const { spec, results, runStatus } = useWorkspace()
+  const [expanded, setExpanded] = useState(false)
 
   if (runStatus === 'running') {
     return (
@@ -28,32 +31,53 @@ export default function Analysis({ panel }: { panel: AnalysisPanel }) {
     return (
       <div className="space-y-2">
         <h3 className="font-semibold tracking-tight text-ink">{panel.title}</h3>
-        <p className="text-sm text-slate-400">
-          Run the workflow to generate the analysis for this job.
-        </p>
+        <p className="text-sm text-slate-400">Run the workflow to generate analysis.</p>
       </div>
     )
   }
+
+  const paragraphs = results.map((result) => {
+    const judge = spec.judges.find((entry) => entry.id === result.judgeId)
+    return {
+      key: result.judgeId,
+      question: judge?.question ?? result.judgeId,
+      text: `${formatAnswerValue(result.answer.value)} at ${formatPercent(result.answer.confidence)} confidence (${result.disposition}).`,
+    }
+  })
+  const clamped = !expanded && paragraphs.length > 2
+  const visible = clamped ? paragraphs.slice(0, 2) : paragraphs
 
   return (
     <div className="space-y-2">
       <h3 className="font-semibold tracking-tight text-ink">{panel.title}</h3>
       <div className="space-y-2 text-sm leading-relaxed text-slate-600">
         <p>
-          The judges reviewed this submission against {spec.judges.length} question
-          {spec.judges.length === 1 ? '' : 's'} and returned {results.length} decision
+          {spec.judges.length} question{spec.judges.length === 1 ? '' : 's'}, {results.length} decision
           {results.length === 1 ? '' : 's'}.
         </p>
-        {results.map((result) => {
-          const judge = spec.judges.find((entry) => entry.id === result.judgeId)
-          return (
-            <p key={result.judgeId}>
-              <span className="font-medium text-ink">{judge?.question ?? result.judgeId}</span>{' '}
-              {formatAnswerValue(result.answer.value)} at{' '}
-              {formatPercent(result.answer.confidence)} confidence ({result.disposition}).
-            </p>
-          )
-        })}
+        {visible.map((entry) => (
+          <p key={entry.key}>
+            <span className="font-medium text-ink">{entry.question}</span> {entry.text}
+          </p>
+        ))}
+        {clamped && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="font-medium text-accent transition hover:text-accent-hover"
+          >
+            Show more
+          </button>
+        )}
+        {expanded && paragraphs.length > 2 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="font-medium text-accent transition hover:text-accent-hover"
+          >
+            Show less
+          </button>
+        )}
       </div>
     </div>
   )

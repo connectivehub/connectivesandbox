@@ -71,10 +71,10 @@ export default function ConfidenceMeter({ panel }: { panel: ConfidenceMeterPanel
       </div>
       <p className="text-xs leading-relaxed text-slate-400">
         {disposition === 'auto'
-          ? `Confidence is at or above the ${formatPercent(judge.thresholds.auto)} auto threshold — no human review needed.`
+          ? `At or above the ${formatPercent(judge.thresholds.auto)} auto threshold — no review needed.`
           : disposition === 'review'
-            ? `Confidence sits between the ${formatPercent(judge.thresholds.review)} review and ${formatPercent(judge.thresholds.auto)} auto thresholds — a human should confirm before this decides.`
-            : `Below the ${formatPercent(judge.thresholds.review)} review threshold. The judge would need at least ${formatPercent(judge.thresholds.auto)} to be sure — add more detail to raise confidence.`}
+            ? `Between ${formatPercent(judge.thresholds.review)} and ${formatPercent(judge.thresholds.auto)} — confirm before it decides.`
+            : `Below ${formatPercent(judge.thresholds.review)}. Would need at least ${formatPercent(judge.thresholds.auto)} to be sure — add more detail.`}
       </p>
     </div>
   )

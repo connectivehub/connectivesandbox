@@ -66,8 +66,8 @@ export default function Login() {
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', null, '0', 'backspace'] as const
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-ink px-6">
-      <div className="flex w-full max-w-sm flex-col items-center py-16">
+    <main className="flex h-dvh items-center justify-center overflow-hidden bg-ink px-6">
+      <div className="flex w-full max-w-sm flex-col items-center">
         <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
           Connective Labs
         </p>

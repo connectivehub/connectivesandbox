@@ -88,17 +88,17 @@ export const builderConversation: BuilderChatMessage[] = [
     id: 'bc_001',
     role: 'user',
     content:
-      'We spend hours arranging site visits for custom curtain jobs. Build me a workflow: the client submits their contact details and address, and a judge decides if we can book a visit straight away or need to follow up.',
+      'Build a workflow: the client submits contact details and address, and a judge decides if we can book a site visit straight away.',
   },
   {
     id: 'bc_002',
     role: 'assistant',
     content:
-      'Here is a first draft of the Site Visit Booking workflow. Intake collects contact details, the job address, and the property type; one judge scores booking readiness and a second checks whether the access notes are sufficient for the surveyor. Load the spec into the preview to see it exactly as your client will.',
+      'Draft ready — Site Visit Booking. Intake collects contact details, address, and property type; one judge scores booking readiness, another checks the access notes. Load the spec into the preview.',
     spec: siteVisitBookingSpec,
   },
 ]
 
 /** Canned assistant acknowledgement while the builder runs on fixtures. */
 export const builderAckReply =
-  'Understood — I have noted that for the next draft. Spec generation runs on fixtures in this environment; you can refine the current spec as raw JSON in the preview pane.'
+  'Noted. Spec generation runs on fixtures this phase — refine the spec as raw JSON in the preview pane.'

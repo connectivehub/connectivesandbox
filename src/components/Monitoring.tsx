@@ -52,10 +52,10 @@ export default function Monitoring({ panel }: { panel: MonitoringPanel }) {
         {panel.metrics.map((metric) => {
           const fixture = metricFor(metric)
           return (
-            <div key={metric} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div key={metric} className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
               <p className="truncate text-xs font-medium text-slate-400">{fixture.label}</p>
-              <p className="mt-1 text-xl font-bold tracking-tight text-ink">{fixture.value}</p>
-              <Sparkline points={trendFromSeed(metric)} className="mt-1 h-7 w-24 text-accent" />
+              <p className="mt-0.5 text-lg font-bold tracking-tight text-ink">{fixture.value}</p>
+              <Sparkline points={trendFromSeed(metric)} className="mt-0.5 h-6 w-20 text-accent" />
             </div>
           )
         })}

@@ -59,7 +59,7 @@ export default function UsageCounter({ panel }: { panel: UsageCounterPanel }) {
       <div className="grid grid-cols-3 gap-3">
         {stats.map((stat) => (
           <div key={stat.label} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <p className="text-xl font-bold tracking-tight text-ink">{stat.value}</p>
+            <p className="text-lg font-bold tracking-tight text-ink">{stat.value}</p>
             <p className="mt-0.5 text-xs text-slate-400">{stat.label}</p>
           </div>
         ))}

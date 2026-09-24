@@ -35,9 +35,7 @@ export default function DecisionLog({ panel }: { panel: DecisionLogPanel }) {
     return (
       <div className="space-y-2">
         <h3 className="font-semibold tracking-tight text-ink">Decision log</h3>
-        <p className="text-sm text-slate-400">
-          No decisions recorded yet — run the workflow and every judge verdict lands here.
-        </p>
+        <p className="text-sm text-slate-400">No decisions yet — run the workflow.</p>
       </div>
     )
   }
@@ -45,14 +43,14 @@ export default function DecisionLog({ panel }: { panel: DecisionLogPanel }) {
   return (
     <div className="space-y-2">
       <h3 className="font-semibold tracking-tight text-ink">Decision log</h3>
-      <div className="-mx-2 overflow-x-auto">
-        <table className="w-full min-w-[480px] border-collapse text-left text-xs">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left text-xs">
           <thead>
             <tr className="border-b border-slate-200 text-slate-400">
               <th scope="col" className="px-2 py-2 font-medium">Time</th>
               <th scope="col" className="px-2 py-2 font-medium">Question</th>
               <th scope="col" className="px-2 py-2 font-medium">Answer</th>
-              <th scope="col" className="px-2 py-2 font-medium">Confidence</th>
+              <th scope="col" className="px-2 py-2 font-medium">Conf.</th>
               <th scope="col" className="px-2 py-2 text-right font-medium">Latency</th>
             </tr>
           </thead>

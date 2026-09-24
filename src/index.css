@@ -41,6 +41,33 @@
   color-scheme: light;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   font-family: var(--font-sans);
+}
+
+/* Slim brand scrollbar for genuinely unavoidable overflow: thin, slate,
+   rounded, orange thumb on hover — never the default browser scrollbar. */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scroll-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: #cbd5e1;
+}
+.scroll-slim::-webkit-scrollbar-thumb:hover {
+  background: #ff6b35;
 }

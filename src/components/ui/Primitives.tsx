@@ -2,13 +2,13 @@
 // sparkline. One place so radii, borders, and the single accent stay
 // consistent across the workspace and admin screens.
 
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ComponentPropsWithoutRef, ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
 
-export function Card({ children, className }: { children: ReactNode; className?: string }) {
+export function Card({ children, className, ...rest }: ComponentPropsWithoutRef<'div'>) {
   return (
-    <div className={cn('rounded-xl border border-slate-200 bg-white p-5 shadow-sm', className)}>
+    <div className={cn('rounded-xl border border-slate-200 bg-white p-5 shadow-sm', className)} {...rest}>
       {children}
     </div>
   )
