@@ -4,6 +4,7 @@
 // live preview.
 
 import { Suspense } from 'react'
+import { motion } from 'framer-motion'
 import { ChevronsDownUp } from 'lucide-react'
 
 import { dashboardRegistry } from '@/engine/registry'
@@ -20,14 +21,20 @@ function PanelSkeleton() {
   )
 }
 
-function PanelCard({ panel }: { panel: DashboardPanel }) {
+function PanelCard({ panel, index }: { panel: DashboardPanel; index: number }) {
   const Comp = dashboardRegistry[panel.type]
   return (
-    <Card className="space-y-3">
-      <Suspense fallback={<PanelSkeleton />}>
-        <Comp panel={panel} />
-      </Suspense>
-    </Card>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: 'easeOut', delay: index * 0.05 }}
+    >
+      <Card className="space-y-3">
+        <Suspense fallback={<PanelSkeleton />}>
+          <Comp panel={panel} />
+        </Suspense>
+      </Card>
+    </motion.div>
   )
 }
 
@@ -48,8 +55,8 @@ export default function DashboardPane() {
           <ChevronsDownUp size={15} aria-hidden="true" />
         </button>
       </div>
-      {spec.dashboard.panels.map((panel: DashboardPanel) => (
-        <PanelCard key={panel.id} panel={panel} />
+      {spec.dashboard.panels.map((panel: DashboardPanel, index: number) => (
+        <PanelCard key={panel.id} panel={panel} index={index} />
       ))}
     </div>
   )
