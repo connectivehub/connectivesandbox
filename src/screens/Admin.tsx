@@ -1,25 +1,36 @@
-// Admin console: three columns — client list (260px), workflow-builder chat
+// Admin console: collapsible client/workflow rail (260px, hover flyout,
+// click pins), workflow-builder chat scoped to the selected client+workflow
 // (flex), and a 480px live preview column with raw-JSON editing, validation
 // status, and Publish. The builder chat runs on fixtures this phase; the
 // preview renders a loaded spec exactly as the workspace does.
 
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, Send } from 'lucide-react'
+import { Building2, Check, ChevronDown, Pencil, Plus, Send, Trash2, Workflow, X } from 'lucide-react'
 
 import AppTopBar from '@/components/AppTopBar'
-import DashboardPane from '@/components/workspace/DashboardPane'
-import IntakeSurface from '@/components/workspace/IntakeSurface'
+import WorkspaceBody from '@/components/workspace/WorkspaceBody'
+import { CollapsibleRail } from '@/components/ui/CollapsibleRail'
 import { Badge, Eyebrow, PrimaryButton } from '@/components/ui/Primitives'
 import { safeParseWorkflowSpec } from '@/engine/schema'
 import type { WorkflowSpec } from '@/engine/types'
-import { getClientAccessCode, listClients } from '@/data/adapters/clients'
-import { getWorkflowSpec, listWorkflows } from '@/data/adapters/workflows'
-import type { Client, WorkflowSummary } from '@/data/types'
 import {
-  builderAckReply,
-  builderConversation,
-  type BuilderChatMessage,
-} from '@/data/fixtures/builderChat'
+  createClient,
+  deleteClient,
+  getClientAccessCode,
+  listClients,
+  renameClient,
+} from '@/data/adapters/clients'
+import {
+  createWorkflow,
+  deleteWorkflow,
+  getWorkflowSpec,
+  listWorkflows,
+  renameWorkflow,
+  saveWorkflowSpec,
+} from '@/data/adapters/workflows'
+import { appendBuilderMessage, getBuilderHistory } from '@/data/adapters/builderChat'
+import { builderAckReply, type BuilderChatMessage } from '@/data/fixtures/builderChat'
+import type { Client, WorkflowSummary } from '@/data/types'
 import { WorkspaceProvider } from '@/state/workspace'
 import { cn } from '@/lib/utils'
 
@@ -35,9 +46,9 @@ function formatZodError(error: { issues: { path: PropertyKey[]; message: string 
   return path.length > 0 ? `${path}: ${issue.message}` : issue.message
 }
 
-// Scaled-down two-pane preview frame: laid out at 600x620, scaled to 72%.
+// Scaled-down two-pane preview frame: laid out at 600x560, scaled to 72%.
 const FRAME_W = 600
-const FRAME_H = 620
+const FRAME_H = 560
 const SCALE = 0.72
 
 /** Collapsed JSON block labelled "Workflow spec" with a load action. */
@@ -68,10 +79,120 @@ function SpecBlock({ spec, onLoad }: { spec: WorkflowSpec; onLoad: (spec: Workfl
         </button>
       </div>
       {open && (
-        <pre className="max-h-56 overflow-auto rounded-b-xl bg-surface-dark p-3 font-mono text-xs leading-relaxed text-slate-200">
+        <pre className="scroll-slim max-h-40 overflow-auto rounded-b-xl bg-surface-dark p-3 font-mono text-xs leading-relaxed text-slate-200">
           {JSON.stringify(spec, null, 2)}
         </pre>
       )}
+    </div>
+  )
+}
+
+/** Tiny round icon control for row-level list actions. */
+function RowButton({
+  label,
+  onClick,
+  children,
+  danger,
+}: {
+  label: string
+  onClick: () => void
+  children: React.ReactNode
+  danger?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
+      }}
+      aria-label={label}
+      title={label}
+      className={cn(
+        'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 transition',
+        danger ? 'hover:bg-red-50 hover:text-red-600' : 'hover:bg-slate-100 hover:text-ink',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** Inline single-input row for renames and quick creation. Enter submits. */
+function InlineInput({
+  value,
+  onChange,
+  placeholder,
+  ariaLabel,
+  onSubmit,
+  onCancel,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  ariaLabel: string
+  onSubmit: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') onSubmit()
+          if (event.key === 'Escape') onCancel()
+        }}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        autoFocus
+        className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-ink placeholder:text-slate-400 focus:border-accent focus:outline-none"
+      />
+      <RowButton label="Confirm" onClick={onSubmit}>
+        <Check size={14} aria-hidden="true" />
+      </RowButton>
+      <RowButton label="Cancel" onClick={onCancel}>
+        <X size={14} aria-hidden="true" />
+      </RowButton>
+    </div>
+  )
+}
+
+/** One-line destructive confirm: label with Confirm/Cancel, no dialog. */
+function InlineConfirm({
+  label,
+  onConfirm,
+  onCancel,
+}: {
+  label: string
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-1 py-1.5">
+      <p className="truncate text-xs font-medium text-slate-600">{label}</p>
+      <span className="flex shrink-0 gap-1">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            onConfirm()
+          }}
+          className="rounded-full bg-red-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-red-700"
+        >
+          Delete
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            onCancel()
+          }}
+          className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:border-accent hover:text-accent"
+        >
+          Cancel
+        </button>
+      </span>
     </div>
   )
 }
@@ -84,7 +205,7 @@ export default function Admin() {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([])
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null)
 
-  const [messages, setMessages] = useState<BuilderChatMessage[]>(builderConversation)
+  const [messages, setMessages] = useState<BuilderChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [chatPending, setChatPending] = useState(false)
 
@@ -92,39 +213,62 @@ export default function Admin() {
   const [specSource, setSpecSource] = useState('')
   const [publishedMessage, setPublishedMessage] = useState<string | null>(null)
 
-  useEffect(() => {
-    let active = true
-    void listClients().then(async (rows) => {
-      const codeEntries = await Promise.all(
-        rows.map(async (client) => [client.id, await getClientAccessCode(client.id)] as const),
-      )
-      const countEntries = await Promise.all(
-        rows.map(async (client) => [client.id, (await listWorkflows(client.id)).length] as const),
-      )
-      if (!active) return
-      setClients(rows)
-      setAccessCodes(
-        Object.fromEntries(codeEntries.filter((entry): entry is readonly [string, string] => entry[1] !== null)),
-      )
-      setWorkflowCounts(Object.fromEntries(countEntries))
-      setSelectedClientId(rows[0]?.id ?? null)
-    })
-    return () => {
-      active = false
-    }
-  }, [])
+  // CRUD chrome: one open piece at a time per list.
+  const [newClientOpen, setNewClientOpen] = useState(false)
+  const [newClientName, setNewClientName] = useState('')
+  const [newClientCode, setNewClientCode] = useState('')
+  const [renamingClientId, setRenamingClientId] = useState<string | null>(null)
+  const [clientRenameValue, setClientRenameValue] = useState('')
+  const [confirmingClientId, setConfirmingClientId] = useState<string | null>(null)
+  const [newWorkflowOpen, setNewWorkflowOpen] = useState(false)
+  const [newWorkflowName, setNewWorkflowName] = useState('')
+  const [newWorkflowMode, setNewWorkflowMode] = useState<'blank' | 'duplicate'>('blank')
+  const [renamingWorkflowId, setRenamingWorkflowId] = useState<string | null>(null)
+  const [workflowRenameValue, setWorkflowRenameValue] = useState('')
+  const [confirmingWorkflowId, setConfirmingWorkflowId] = useState<string | null>(null)
 
   useEffect(() => {
-    let active = true
+    void reloadClients(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function reloadClients(selectId: string | null) {
+    const rows = await listClients()
+    const codeEntries = await Promise.all(
+      rows.map(async (client) => [client.id, await getClientAccessCode(client.id)] as const),
+    )
+    const countEntries = await Promise.all(
+      rows.map(async (client) => [client.id, (await listWorkflows(client.id)).length] as const),
+    )
+    setClients(rows)
+    setAccessCodes(
+      Object.fromEntries(codeEntries.filter((entry): entry is readonly [string, string] => entry[1] !== null)),
+    )
+    setWorkflowCounts(Object.fromEntries(countEntries))
+    setSelectedClientId(selectId ?? rows[0]?.id ?? null)
+  }
+
+  async function reloadWorkflows(clientId: string, selectId: string | null) {
+    const rows = await listWorkflows(clientId)
+    setWorkflows(rows)
+    setSelectedWorkflowId(selectId ?? rows[0]?.id ?? null)
+    void reloadClients(clientId)
+  }
+
+  useEffect(() => {
     if (selectedClientId === null) {
       setWorkflows([])
       setSelectedWorkflowId(null)
       return
     }
+    let active = true
     void listWorkflows(selectedClientId).then((rows) => {
       if (!active) return
       setWorkflows(rows)
-      setSelectedWorkflowId(rows[0]?.id ?? null)
+      setSelectedWorkflowId((current) => {
+        if (current !== null && rows.some((row) => row.id === current)) return current
+        return rows[0]?.id ?? null
+      })
     })
     return () => {
       active = false
@@ -133,15 +277,36 @@ export default function Admin() {
 
   // Selecting a workflow loads its stored spec into the editor and preview.
   useEffect(() => {
+    if (selectedWorkflowId === null) {
+      setSpecSource('')
+      return
+    }
     let active = true
-    if (selectedWorkflowId === null) return
     void getWorkflowSpec(selectedWorkflowId).then((loaded) => {
-      if (active && loaded) setSpecSource(JSON.stringify(loaded, null, 2))
+      if (active) setSpecSource(loaded !== null ? JSON.stringify(loaded, null, 2) : '')
     })
     return () => {
       active = false
     }
   }, [selectedWorkflowId])
+
+  // Chat history is scoped to the selected client+workflow.
+  const chatKey = selectedClientId !== null && selectedWorkflowId !== null
+    ? `${selectedClientId}:${selectedWorkflowId}`
+    : null
+  useEffect(() => {
+    if (chatKey === null) {
+      setMessages([])
+      return
+    }
+    let active = true
+    void getBuilderHistory(chatKey).then((history) => {
+      if (active) setMessages(history)
+    })
+    return () => {
+      active = false
+    }
+  }, [chatKey])
 
   const validation = useMemo<SpecValidation>(() => {
     const source = specSource.trim()
@@ -161,22 +326,68 @@ export default function Admin() {
   const selectedClient = clients.find((client) => client.id === selectedClientId) ?? null
   const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null
 
-  const addClient = () => {
-    const id = `clt_local_${Date.now()}`
-    const client: Client = {
-      id,
-      name: 'New Organisation',
-      slug: `new-org-${Date.now()}`,
-      created_at: new Date().toISOString(),
-    }
-    setClients((previous) => [...previous, client])
-    setAccessCodes((previous) => ({
-      ...previous,
-      [id]: String(Math.floor(1000 + Math.random() * 9000)),
-    }))
-    setWorkflowCounts((previous) => ({ ...previous, [id]: 0 }))
-    setSelectedClientId(id)
+  // --- Client CRUD (fixtures: reversible by reload) ---
+
+  const submitNewClient = async () => {
+    const name = newClientName.trim()
+    const code = newClientCode.trim()
+    if (name.length === 0 || !/^\d{4}$/.test(code)) return
+    const client = await createClient(name, code)
+    setNewClientOpen(false)
+    setNewClientName('')
+    setNewClientCode('')
+    await reloadClients(client.id)
   }
+
+  const submitClientRename = async (clientId: string) => {
+    const name = clientRenameValue.trim()
+    if (name.length > 0) await renameClient(clientId, name)
+    setRenamingClientId(null)
+    await reloadClients(clientId)
+  }
+
+  const submitClientDelete = async (clientId: string) => {
+    setConfirmingClientId(null)
+    await deleteClient(clientId)
+    await reloadClients(null)
+  }
+
+  // --- Workflow CRUD ---
+
+  const submitNewWorkflow = async () => {
+    const name = newWorkflowName.trim()
+    if (name.length === 0 || selectedClientId === null) return
+    let spec: WorkflowSpec | null = null
+    if (newWorkflowMode === 'duplicate' && selectedWorkflowId !== null) {
+      spec = await getWorkflowSpec(selectedWorkflowId)
+    }
+    const workflow = await createWorkflow(selectedClientId, name, spec)
+    setNewWorkflowOpen(false)
+    setNewWorkflowName('')
+    setNewWorkflowMode('blank')
+    await reloadWorkflows(selectedClientId, workflow.id)
+  }
+
+  const submitWorkflowRename = async (workflowId: string) => {
+    const name = workflowRenameValue.trim()
+    if (name.length > 0 && selectedClientId !== null) {
+      await renameWorkflow(workflowId, name)
+      await reloadWorkflows(selectedClientId, workflowId)
+      // Refresh the editor/preview so the spec carries the new name.
+      const loaded = await getWorkflowSpec(workflowId)
+      if (loaded !== null) setSpecSource(JSON.stringify(loaded, null, 2))
+    }
+    setRenamingWorkflowId(null)
+  }
+
+  const submitWorkflowDelete = async (workflowId: string) => {
+    setConfirmingWorkflowId(null)
+    if (selectedClientId === null) return
+    await deleteWorkflow(workflowId)
+    await reloadWorkflows(selectedClientId, null)
+  }
+
+  // --- Builder chat + preview ---
 
   const loadSpecIntoPreview = (spec: WorkflowSpec) => {
     setSpecSource(JSON.stringify(spec, null, 2))
@@ -185,59 +396,105 @@ export default function Admin() {
 
   const sendChat = () => {
     const content = draft.trim()
-    if (content.length === 0 || chatPending) return
+    if (content.length === 0 || chatPending || chatKey === null) return
     setDraft('')
-    setMessages((previous) => [
-      ...previous,
-      { id: `bc_${Date.now()}`, role: 'user', content },
-    ])
+    const userMessage: BuilderChatMessage = {
+      id: `bc_${Date.now()}`,
+      role: 'user',
+      content,
+    }
+    setMessages((previous) => [...previous, userMessage])
+    appendBuilderMessage(chatKey, userMessage)
     setChatPending(true)
     window.setTimeout(() => {
       setChatPending(false)
-      setMessages((previous) => [
-        ...previous,
-        { id: `bc_${Date.now()}_ack`, role: 'assistant', content: builderAckReply },
-      ])
+      const ack: BuilderChatMessage = {
+        id: `bc_${Date.now()}_ack`,
+        role: 'assistant',
+        content: builderAckReply,
+      }
+      setMessages((previous) => [...previous, ack])
+      appendBuilderMessage(chatKey, ack)
     }, 900)
   }
 
-  const publish = () => {
-    if (validation.state !== 'valid' || !selectedClient) return
-    const version = selectedWorkflow?.version ?? 1
-    setPublishedMessage(`Published “${validation.spec.name}” to ${selectedClient.name} — v${version + 1}`)
+  const publish = async () => {
+    if (validation.state !== 'valid' || selectedWorkflow === null) return
+    await saveWorkflowSpec(selectedWorkflow.id, validation.spec)
+    setPublishedMessage(
+      `Published “${validation.spec.name}” to ${selectedClient?.name ?? 'client'} — v${selectedWorkflow.version + 1}`,
+    )
+    if (selectedClientId !== null) await reloadWorkflows(selectedClientId, selectedWorkflow.id)
     window.setTimeout(() => setPublishedMessage(null), 4000)
   }
 
-  return (
-    <div className="flex h-screen flex-col bg-white">
-      <AppTopBar context="Admin" />
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
-        {/* Left column: clients and their workflows */}
-        <aside className="shrink-0 border-b border-slate-200 bg-slate-50 px-3 py-4 lg:w-[260px] lg:border-b-0 lg:border-r">
-          <div className="flex items-center justify-between gap-2 px-2">
-            <Eyebrow>Clients</Eyebrow>
-            <button
-              type="button"
-              onClick={addClient}
-              className="rounded-full bg-accent px-3 py-1 text-xs font-semibold text-white transition hover:bg-accent-hover active:bg-accent-pressed"
+  // Left column content, shared by the collapsible rail (desktop) and the
+  // stacked block (below lg).
+  const leftColumn = (
+    <div className="scroll-slim flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-4">
+      <div className="flex items-center justify-between gap-2 px-2">
+        <Eyebrow>Clients</Eyebrow>
+        <RowButton label="New Client" onClick={() => setNewClientOpen(true)}>
+          <Plus size={16} aria-hidden="true" />
+        </RowButton>
+      </div>
+      {newClientOpen && (
+        <div className="mt-2 space-y-1.5 rounded-lg border border-slate-200 bg-white p-2">
+          <InlineInput
+            value={newClientName}
+            onChange={setNewClientName}
+            placeholder="Client name"
+            ariaLabel="New client name"
+            onSubmit={submitNewClient}
+            onCancel={() => setNewClientOpen(false)}
+          />
+          <InlineInput
+            value={newClientCode}
+            onChange={setNewClientCode}
+            placeholder="Four-digit code"
+            ariaLabel="New client four-digit access code"
+            onSubmit={submitNewClient}
+            onCancel={() => setNewClientOpen(false)}
+          />
+        </div>
+      )}
+      <div className="mt-3 space-y-1">
+        {clients.map((client) =>
+          renamingClientId === client.id ? (
+            <InlineInput
+              key={client.id}
+              value={clientRenameValue}
+              onChange={setClientRenameValue}
+              placeholder="Client name"
+              ariaLabel="Rename client"
+              onSubmit={() => void submitClientRename(client.id)}
+              onCancel={() => setRenamingClientId(null)}
+            />
+          ) : confirmingClientId === client.id ? (
+            <InlineConfirm
+              key={client.id}
+              label={`Delete ${client.name}?`}
+              onConfirm={() => void submitClientDelete(client.id)}
+              onCancel={() => setConfirmingClientId(null)}
+            />
+          ) : (
+            <div
+              key={client.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedClientId(client.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') setSelectedClientId(client.id)
+              }}
+              aria-current={client.id === selectedClientId ? 'true' : undefined}
+              className={cn(
+                'group flex w-full cursor-pointer items-center gap-1 rounded-lg px-3 py-2.5 text-left transition-colors',
+                client.id === selectedClientId
+                  ? 'bg-white text-ink shadow-sm ring-1 ring-slate-200'
+                  : 'text-slate-600 hover:bg-white/60 hover:text-ink',
+              )}
             >
-              New Client
-            </button>
-          </div>
-          <div className="mt-3 space-y-1">
-            {clients.map((client) => (
-              <button
-                key={client.id}
-                type="button"
-                onClick={() => setSelectedClientId(client.id)}
-                aria-current={client.id === selectedClientId ? 'true' : undefined}
-                className={cn(
-                  'block w-full rounded-lg px-3 py-2.5 text-left transition-colors',
-                  client.id === selectedClientId
-                    ? 'bg-white text-ink shadow-sm ring-1 ring-slate-200'
-                    : 'text-slate-600 hover:bg-white/60 hover:text-ink',
-                )}
-              >
+              <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{client.name}</span>
                 <span className="mt-0.5 flex items-center gap-2 text-xs text-slate-400">
                   <span className="font-mono">#{accessCodes[client.id] ?? '····'}</span>
@@ -246,51 +503,185 @@ export default function Admin() {
                     {(workflowCounts[client.id] ?? 0) === 1 ? 'workflow' : 'workflows'}
                   </span>
                 </span>
-              </button>
-            ))}
-          </div>
+              </span>
+              <span className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <RowButton
+                  label={`Rename ${client.name}`}
+                  onClick={() => {
+                    setClientRenameValue(client.name)
+                    setRenamingClientId(client.id)
+                  }}
+                >
+                  <Pencil size={13} aria-hidden="true" />
+                </RowButton>
+                <RowButton
+                  label={`Delete ${client.name}`}
+                  danger
+                  onClick={() => setConfirmingClientId(client.id)}
+                >
+                  <Trash2 size={13} aria-hidden="true" />
+                </RowButton>
+              </span>
+            </div>
+          ),
+        )}
+      </div>
 
-          <Eyebrow className="mt-6 px-2">Workflows</Eyebrow>
-          <div className="mt-3 space-y-1">
-            {workflows.map((workflow) => (
+      <div className="mt-6 flex items-center justify-between gap-2 px-2">
+        <Eyebrow>Workflows</Eyebrow>
+        <RowButton label="New Workflow" onClick={() => setNewWorkflowOpen(true)}>
+          <Plus size={16} aria-hidden="true" />
+        </RowButton>
+      </div>
+      {newWorkflowOpen && (
+        <div className="mt-2 space-y-1.5 rounded-lg border border-slate-200 bg-white p-2">
+          <InlineInput
+            value={newWorkflowName}
+            onChange={setNewWorkflowName}
+            placeholder="Workflow name"
+            ariaLabel="New workflow name"
+            onSubmit={submitNewWorkflow}
+            onCancel={() => setNewWorkflowOpen(false)}
+          />
+          <div className="flex gap-1" role="group" aria-label="New workflow source">
+            {(['blank', 'duplicate'] as const).map((mode) => (
               <button
-                key={workflow.id}
+                key={mode}
                 type="button"
-                onClick={() => setSelectedWorkflowId(workflow.id)}
-                aria-current={workflow.id === selectedWorkflowId ? 'true' : undefined}
+                onClick={() => setNewWorkflowMode(mode)}
+                aria-pressed={newWorkflowMode === mode}
                 className={cn(
-                  'block w-full rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
-                  workflow.id === selectedWorkflowId
-                    ? 'bg-white font-medium text-accent shadow-sm ring-1 ring-slate-200'
-                    : 'text-slate-600 hover:bg-white/60 hover:text-ink',
+                  'flex-1 rounded-full px-2 py-1 text-xs font-medium transition-colors',
+                  newWorkflowMode === mode
+                    ? 'bg-accent text-white'
+                    : 'border border-slate-200 text-slate-600 hover:border-accent hover:text-accent',
                 )}
               >
-                <span className="block truncate">{workflow.name}</span>
-                <span className="mt-0.5 block text-xs text-slate-400">v{workflow.version}</span>
+                {mode === 'blank' ? 'Blank' : 'Duplicate'}
               </button>
             ))}
-            {workflows.length === 0 && (
-              <p className="px-3 text-xs text-slate-400">
-                No workflows for this client yet — build one in the chat.
-              </p>
-            )}
           </div>
-        </aside>
+        </div>
+      )}
+      <div className="mt-3 space-y-1">
+        {workflows.map((workflow) =>
+          renamingWorkflowId === workflow.id ? (
+            <InlineInput
+              key={workflow.id}
+              value={workflowRenameValue}
+              onChange={setWorkflowRenameValue}
+              placeholder="Workflow name"
+              ariaLabel="Rename workflow"
+              onSubmit={() => void submitWorkflowRename(workflow.id)}
+              onCancel={() => setRenamingWorkflowId(null)}
+            />
+          ) : confirmingWorkflowId === workflow.id ? (
+            <InlineConfirm
+              key={workflow.id}
+              label={`Delete ${workflow.name}?`}
+              onConfirm={() => void submitWorkflowDelete(workflow.id)}
+              onCancel={() => setConfirmingWorkflowId(null)}
+            />
+          ) : (
+            <div
+              key={workflow.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedWorkflowId(workflow.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') setSelectedWorkflowId(workflow.id)
+              }}
+              aria-current={workflow.id === selectedWorkflowId ? 'true' : undefined}
+              className={cn(
+                'group flex w-full cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-left text-sm transition-colors',
+                workflow.id === selectedWorkflowId
+                  ? 'bg-white font-medium text-accent shadow-sm ring-1 ring-slate-200'
+                  : 'text-slate-600 hover:bg-white/60 hover:text-ink',
+              )}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{workflow.name}</span>
+                <span className="mt-0.5 block text-xs text-slate-400">v{workflow.version}</span>
+              </span>
+              <span className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <RowButton
+                  label={`Rename ${workflow.name}`}
+                  onClick={() => {
+                    setWorkflowRenameValue(workflow.name)
+                    setRenamingWorkflowId(workflow.id)
+                  }}
+                >
+                  <Pencil size={13} aria-hidden="true" />
+                </RowButton>
+                <RowButton
+                  label={`Delete ${workflow.name}`}
+                  danger
+                  onClick={() => setConfirmingWorkflowId(workflow.id)}
+                >
+                  <Trash2 size={13} aria-hidden="true" />
+                </RowButton>
+              </span>
+            </div>
+          ),
+        )}
+        {workflows.length === 0 && (
+          <p className="px-3 text-xs text-slate-400">No workflows yet — add one above.</p>
+        )}
+      </div>
+    </div>
+  )
 
-        {/* Centre column: workflow-builder chat */}
-        <main className="flex min-h-[480px] min-w-0 flex-1 flex-col lg:min-h-0">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-2.5">
+  return (
+    <div className="flex h-dvh flex-col overflow-hidden bg-white">
+      <AppTopBar context="Admin" />
+      <div className="scroll-slim flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+        {/* Left column: clients and workflows, collapsible rail on desktop */}
+        <div className="shrink-0 border-b border-slate-200 bg-slate-50 lg:hidden">
+          {leftColumn}
+        </div>
+        <CollapsibleRail
+          width={260}
+          label="clients"
+          className="hidden border-r border-slate-200 bg-slate-50 lg:block"
+          rail={
+            <>
+              <span
+                aria-hidden="true"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400"
+                title="Clients"
+              >
+                <Building2 size={16} />
+              </span>
+              <span
+                aria-hidden="true"
+                className="mt-2 flex h-9 w-9 items-center justify-center rounded-lg text-slate-400"
+                title="Workflows"
+              >
+                <Workflow size={16} />
+              </span>
+            </>
+          }
+        >
+          {leftColumn}
+        </CollapsibleRail>
+
+        {/* Centre column: workflow-builder chat, scoped to client+workflow */}
+        <main className="flex min-h-[420px] min-w-0 flex-1 flex-col lg:min-h-0">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-2.5">
             <p className="truncate text-sm">
               <span className="font-semibold text-ink">{selectedClient?.name ?? 'No client selected'}</span>
               <span className="text-slate-400"> · {selectedWorkflow?.name ?? 'New workflow'}</span>
             </p>
-            {validation.state === 'valid' && <Badge tone="valid">Spec valid</Badge>}
+            {validation.state === 'valid' && <Badge tone="valid">valid</Badge>}
             {validation.state === 'invalid' && specSource.trim().length > 0 && (
-              <Badge tone="invalid">Spec invalid</Badge>
+              <Badge tone="invalid">invalid</Badge>
             )}
           </div>
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5" aria-label="Builder chat">
+          <div
+            className="scroll-slim min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5"
+            aria-label="Builder chat"
+          >
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -323,7 +714,7 @@ export default function Admin() {
           </div>
 
           <form
-            className="flex gap-2 border-t border-slate-200 px-5 py-3"
+            className="flex shrink-0 gap-2 border-t border-slate-200 px-5 py-3"
             onSubmit={(event) => {
               event.preventDefault()
               sendChat()
@@ -332,7 +723,7 @@ export default function Admin() {
             <input
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Describe the workflow you need…"
+              placeholder="Describe the workflow…"
               aria-label="Message the builder"
               disabled={chatPending}
               className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm text-ink placeholder:text-slate-400 focus:border-accent focus:outline-none disabled:opacity-50"
@@ -346,11 +737,14 @@ export default function Admin() {
               <Send size={16} aria-hidden="true" />
             </button>
           </form>
+          <p className="shrink-0 pb-2.5 text-center text-xs font-semibold uppercase tracking-widest text-slate-400">
+            GLM 5.3 Flash
+          </p>
         </main>
 
         {/* Right column: live preview, raw JSON, validation, publish */}
-        <aside className="flex shrink-0 flex-col border-t border-slate-200 bg-slate-50 px-4 py-4 lg:w-[480px] lg:border-l lg:border-t-0">
-          <div className="flex items-center justify-between gap-3">
+        <aside className="flex min-h-0 shrink-0 flex-col border-t border-slate-200 bg-slate-50 lg:w-[480px] lg:border-l lg:border-t-0">
+          <div className="flex shrink-0 items-center justify-between gap-3 px-4 pt-3">
             <div className="flex gap-1 rounded-full border border-slate-200 bg-white p-1">
               {(['preview', 'json'] as const).map((entry) => (
                 <button
@@ -378,8 +772,8 @@ export default function Admin() {
             )}
           </div>
 
-          {tab === 'preview' ? (
-            <div className="mt-4">
+          <div className="scroll-slim min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {tab === 'preview' ? (
               <div
                 className="relative"
                 style={{ width: FRAME_W * SCALE, height: FRAME_H * SCALE }}
@@ -403,66 +797,56 @@ export default function Admin() {
                         <p className="shrink-0 border-b border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-slate-400">
                           {validation.spec.name}
                         </p>
-                        <div className="flex min-h-0 flex-1">
-                          <div className="w-[60%] shrink-0 overflow-y-auto border-r border-slate-200 bg-white px-4 py-4">
-                            <IntakeSurface />
-                          </div>
-                          <div className="w-[40%] shrink-0 overflow-y-auto bg-slate-50 px-4 py-4">
-                            <DashboardPane />
-                          </div>
-                        </div>
+                        <WorkspaceBody />
                       </div>
                     </WorkspaceProvider>
                   ) : (
                     <div className="flex h-full items-center justify-center p-8 text-center">
                       <p className="text-sm leading-relaxed text-slate-400">
-                        No valid workflow spec loaded. Select a workflow on the left, or load a
-                        spec from the builder chat.
+                        No valid spec loaded. Select a workflow or load one from the chat.
                       </p>
                     </div>
                   )}
                 </div>
               </div>
-            </div>
-          ) : (
-            <textarea
-              value={specSource}
-              onChange={(event) => setSpecSource(event.target.value)}
-              spellCheck={false}
-              aria-label="Workflow spec JSON"
-              className="mt-4 h-[420px] w-full resize-none rounded-xl border border-slate-200 bg-white p-3 font-mono text-xs leading-relaxed text-ink focus:border-accent focus:outline-none"
-              placeholder="Load or paste a WorkflowSpec JSON here."
-            />
-          )}
-
-          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-            {validation.state === 'valid' ? (
-              <p className="text-sm text-slate-600">
-                Schema check passed — the spec is ready to publish.
-              </p>
-            ) : validation.state === 'invalid' ? (
-              <p className="break-words font-mono text-xs leading-relaxed text-red-600">
-                {validation.error}
-              </p>
             ) : (
-              <p className="text-sm text-slate-400">Load a spec to validate and publish.</p>
+              <textarea
+                value={specSource}
+                onChange={(event) => setSpecSource(event.target.value)}
+                spellCheck={false}
+                aria-label="Workflow spec JSON"
+                className="scroll-slim h-64 w-full resize-none rounded-xl border border-slate-200 bg-white p-3 font-mono text-xs leading-relaxed text-ink focus:border-accent focus:outline-none"
+                placeholder="Load or paste a WorkflowSpec JSON here."
+              />
             )}
+
+            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+              {validation.state === 'valid' ? (
+                <p className="text-sm text-slate-600">Schema check passed.</p>
+              ) : validation.state === 'invalid' ? (
+                <p className="break-words font-mono text-xs leading-relaxed text-red-600">
+                  {validation.error}
+                </p>
+              ) : (
+                <p className="text-sm text-slate-400">Load a spec to validate.</p>
+              )}
+            </div>
           </div>
 
-          <div className="mt-4 flex items-center gap-3">
+          <div className="shrink-0 border-t border-slate-200 px-4 py-3">
             <PrimaryButton
-              onClick={publish}
+              onClick={() => void publish()}
               disabled={validation.state !== 'valid'}
               className="w-full"
             >
               Publish to Client
             </PrimaryButton>
+            {publishedMessage !== null && (
+              <p role="status" className="mt-2 text-xs font-medium text-emerald-700">
+                {publishedMessage}
+              </p>
+            )}
           </div>
-          {publishedMessage !== null && (
-            <p role="status" className="mt-2 text-xs font-medium text-emerald-700">
-              {publishedMessage}
-            </p>
-          )}
         </aside>
       </div>
     </div>
