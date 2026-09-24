@@ -66,6 +66,21 @@ export async function deleteWorkflow(workflowId: string): Promise<void> {
   delete specStore[workflowId]
 }
 
+/** Update the workflow description in both the summary and the stored spec. */
+export async function updateWorkflowDescription(
+  workflowId: string,
+  description: string,
+): Promise<void> {
+  const summary = summaryStore.find((entry) => entry.id === workflowId)
+  if (summary) {
+    summary.description = description
+    summary.updated_at = new Date().toISOString()
+  }
+  if (specStore[workflowId]) {
+    specStore[workflowId] = { ...specStore[workflowId], description }
+  }
+}
+
 /** Publish: stores a validated spec against the workflow and bumps version. */
 export async function saveWorkflowSpec(workflowId: string, spec: WorkflowSpec): Promise<void> {
   const summary = summaryStore.find((entry) => entry.id === workflowId)

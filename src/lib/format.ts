@@ -29,6 +29,13 @@ export function formatCount(value: number): string {
   return value.toLocaleString('en-SG')
 }
 
+/** Compact units for metric tiles: 1284 -> 1.3k, 37 -> 37. */
+export function formatCountCompact(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`
+  if (value >= 1000) return `${(value / 1000).toFixed(1).replace(/\.0$/, '')}k`
+  return String(value)
+}
+
 /** Deterministic pseudo-random series for fixture sparklines. */
 export function trendFromSeed(seed: string, points = 12): number[] {
   let state = 0

@@ -5,6 +5,7 @@
 // preview renders a loaded spec exactly as the workspace does.
 
 import { useEffect, useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
 import { Building2, Check, ChevronDown, Pencil, Plus, Send, Trash2, Workflow, X } from 'lucide-react'
 
 import AppTopBar from '@/components/AppTopBar'
@@ -27,6 +28,7 @@ import {
   listWorkflows,
   renameWorkflow,
   saveWorkflowSpec,
+  updateWorkflowDescription,
 } from '@/data/adapters/workflows'
 import { appendBuilderMessage, getBuilderHistory } from '@/data/adapters/builderChat'
 import { builderAckReply, type BuilderChatMessage } from '@/data/fixtures/builderChat'
@@ -169,7 +171,12 @@ function InlineConfirm({
   onCancel: () => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 px-1 py-1.5">
+    <motion.div
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.16, ease: 'easeOut' }}
+      className="flex items-center justify-between gap-2 px-1 py-1.5"
+    >
       <p className="truncate text-xs font-medium text-slate-600">{label}</p>
       <span className="flex shrink-0 gap-1">
         <button
@@ -193,7 +200,7 @@ function InlineConfirm({
           Cancel
         </button>
       </span>
-    </div>
+    </motion.div>
   )
 }
 
@@ -226,6 +233,8 @@ export default function Admin() {
   const [renamingWorkflowId, setRenamingWorkflowId] = useState<string | null>(null)
   const [workflowRenameValue, setWorkflowRenameValue] = useState('')
   const [confirmingWorkflowId, setConfirmingWorkflowId] = useState<string | null>(null)
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [descriptionValue, setDescriptionValue] = useState('')
 
   useEffect(() => {
     void reloadClients(null)
@@ -385,6 +394,17 @@ export default function Admin() {
     if (selectedClientId === null) return
     await deleteWorkflow(workflowId)
     await reloadWorkflows(selectedClientId, null)
+  }
+
+  const submitDescription = async () => {
+    if (selectedWorkflowId === null) return
+    const description = descriptionValue.trim()
+    await updateWorkflowDescription(selectedWorkflowId, description)
+    setEditingDescription(false)
+    if (selectedClientId !== null) await reloadWorkflows(selectedClientId, selectedWorkflowId)
+    // Refresh the editor/preview so the spec carries the new description.
+    const loaded = await getWorkflowSpec(selectedWorkflowId)
+    if (loaded !== null) setSpecSource(JSON.stringify(loaded, null, 2))
   }
 
   // --- Builder chat + preview ---
@@ -668,10 +688,55 @@ export default function Admin() {
         {/* Centre column: workflow-builder chat, scoped to client+workflow */}
         <main className="flex min-h-[420px] min-w-0 flex-1 flex-col lg:min-h-0">
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-2.5">
-            <p className="truncate text-sm">
-              <span className="font-semibold text-ink">{selectedClient?.name ?? 'No client selected'}</span>
-              <span className="text-slate-400"> · {selectedWorkflow?.name ?? 'New workflow'}</span>
-            </p>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <p className="shrink-0 truncate text-sm">
+                <span className="font-semibold text-ink">{selectedClient?.name ?? 'No client selected'}</span>
+                <span className="text-slate-400"> · {selectedWorkflow?.name ?? 'New workflow'}</span>
+              </p>
+              {editingDescription && selectedWorkflow !== null ? (
+                <input
+                  value={descriptionValue}
+                  onChange={(event) => setDescriptionValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void submitDescription()
+                    if (event.key === 'Escape') setEditingDescription(false)
+                  }}
+                  placeholder="Short description"
+                  aria-label="Workflow description"
+                  autoFocus
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-ink placeholder:text-slate-400 focus:border-accent focus:outline-none"
+                />
+              ) : (
+                <button
+                  type="button"
+                  disabled={selectedWorkflow === null}
+                  onClick={() => {
+                    setDescriptionValue(selectedWorkflow?.description ?? '')
+                    setEditingDescription(true)
+                  }}
+                  title="Edit description"
+                  aria-label="Edit workflow description"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left disabled:cursor-default"
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
+                    {selectedWorkflow?.description || 'No description'}
+                  </span>
+                  {selectedWorkflow !== null && (
+                    <Pencil size={12} aria-hidden="true" className="shrink-0 text-slate-300 transition hover:text-accent" />
+                  )}
+                </button>
+              )}
+              {editingDescription && (
+                <span className="flex shrink-0 gap-1">
+                  <RowButton label="Save description" onClick={() => void submitDescription()}>
+                    <Check size={13} aria-hidden="true" />
+                  </RowButton>
+                  <RowButton label="Cancel" onClick={() => setEditingDescription(false)}>
+                    <X size={13} aria-hidden="true" />
+                  </RowButton>
+                </span>
+              )}
+            </div>
             {validation.state === 'valid' && <Badge tone="valid">valid</Badge>}
             {validation.state === 'invalid' && specSource.trim().length > 0 && (
               <Badge tone="invalid">invalid</Badge>

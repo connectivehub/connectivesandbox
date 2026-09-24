@@ -7,7 +7,7 @@ import type { WorkflowSpec } from '@/engine/types'
 export const photoToQuoteTriage: WorkflowSpec = {
   name: 'Photo-to-Quote Triage',
   description:
-    'Customer uploads photos of curtains, sofas, or carpets; judges triage whether the job is quotable straight away, needs one follow-up question, or needs a site visit, and classify the job archetype.',
+    'Upload photos of your curtains, sofas, or carpets; judges triage whether the job is quotable straight away, needs one follow-up question, or needs a site visit, and classify the job archetype.',
   intake: {
     components: [
       {
@@ -15,7 +15,7 @@ export const photoToQuoteTriage: WorkflowSpec = {
         id: 'intake_chat',
         placeholder: 'Describe the job — room, item, and any deadlines…',
         opening_message:
-          'Good day! Drop your photos here and tell us a little about the job. We will come back with a quote or one quick question.',
+          'Good day! Drop your photos here and tell us about the job. You will get a quote or one quick question.',
       },
     ],
   },
@@ -61,7 +61,7 @@ export const photoToQuoteTriage: WorkflowSpec = {
 export const documentIntakeReview: WorkflowSpec = {
   name: 'Document Intake Review',
   description:
-    'Staff upload a document, pick its class, and add free-text notes; judges confirm the classification and whether the document set is complete.',
+    'Upload a document, pick its class, and add your notes; judges confirm the classification and whether the document set is complete.',
   intake: {
     components: [
       {

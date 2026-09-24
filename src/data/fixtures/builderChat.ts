@@ -16,7 +16,7 @@ export interface BuilderChatMessage {
 export const siteVisitBookingSpec: WorkflowSpec = {
   name: 'Site Visit Booking',
   description:
-    'Collect site-visit details from the client and judge whether the visit can be booked straight away or needs more information first.',
+    'Share your site-visit details and judges will confirm whether the visit can be booked straight away or needs more information first.',
   intake: {
     components: [
       {
