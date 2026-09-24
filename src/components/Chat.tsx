@@ -1,12 +1,15 @@
-// Registry entry for intake component type "chat": message list with the
-// spec's opening message, streaming-cursor typing state, and input. Files can
-// be dragged anywhere onto the panel or attached via the clip control; they
-// wait as preview chips and travel with the sent message. The assistant reply
-// is a fixture echo — BACKEND: assistant replies come from the chat edge
-// function from Phase 4.
+// Registry entry for intake component type "chat": viewport-locked message
+// list with the spec's opening message, streaming-cursor typing state, and a
+// pinned composer. Files can be dragged anywhere onto the panel or attached
+// via the clip control; they wait as preview chips and travel with the sent
+// message — object URLs live as long as the message renders, with a filename
+// chip fallback when a thumbnail cannot. The assistant reply is a fixture
+// echo — BACKEND: assistant replies come from the chat edge function from
+// Phase 4.
 
 import { useEffect, useRef, useState, type DragEvent } from 'react'
-import { Paperclip, Send, X } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { FileText, Paperclip, Send, X } from 'lucide-react'
 
 import type { IntakeComponent } from '@/engine/types'
 import { cn } from '@/lib/utils'
@@ -23,14 +26,55 @@ interface ChatAttachment {
   url: string | null
 }
 
+interface SentAttachment {
+  id: string
+  name: string
+  url: string | null
+}
+
 interface ChatEntry {
   id: string
   role: 'user' | 'assistant'
   content: string
-  attachments?: { name: string; url: string | null }[]
+  attachments?: SentAttachment[]
 }
 
 const FIXTURE_REPLY = 'Noted — added to the job details.'
+
+const CHIP_TRANSITION = { duration: 0.16, ease: 'easeOut' as const }
+
+/** Thumbnail that degrades to a filename chip instead of a broken image. */
+function AttachmentThumb({
+  attachment,
+  className,
+}: {
+  attachment: SentAttachment
+  className?: string
+}) {
+  const [failed, setFailed] = useState(false)
+  if (attachment.url === null || failed) {
+    return (
+      <span
+        className={cn(
+          'flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500',
+          className,
+        )}
+        title={attachment.name}
+      >
+        <FileText size={12} aria-hidden="true" className="shrink-0" />
+        <span className="max-w-24 truncate">{attachment.name}</span>
+      </span>
+    )
+  }
+  return (
+    <img
+      src={attachment.url}
+      alt={attachment.name}
+      onError={() => setFailed(true)}
+      className={cn('rounded-lg border border-slate-200 object-cover', className)}
+    />
+  )
+}
 
 export default function Chat({ component }: { component: ChatComponent }) {
   const { runStatus, run } = useWorkspace()
@@ -84,6 +128,8 @@ export default function Chat({ component }: { component: ChatComponent }) {
   const removeAttachment = (id: string) => {
     setAttachments((previous) => {
       const target = previous.find((entry) => entry.id === id)
+      // Only unsent previews are revoked; sent URLs must live as long as the
+      // message that shows them.
       if (target?.url) URL.revokeObjectURL(target.url)
       return previous.filter((entry) => entry.id !== id)
     })
@@ -100,8 +146,8 @@ export default function Chat({ component }: { component: ChatComponent }) {
     const content = draft.trim()
     if (content.length === 0 || disabled) return
     setDraft('')
-    const sent = attachments.map(({ name, url }) => ({ name, url }))
-    attachments.forEach((entry) => entry.url !== null && URL.revokeObjectURL(entry.url))
+    // Object URLs stay alive for the rendered message — never revoked on send.
+    const sent: SentAttachment[] = attachments.map(({ id, name, url }) => ({ id, name, url }))
     setAttachments([])
     const replyId = `msg_${Date.now()}_reply`
     setMessages((previous) => [
@@ -121,7 +167,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
 
   return (
     <Card
-      className="relative flex flex-col gap-4"
+      className="relative flex min-h-0 flex-1 flex-col gap-3 p-4"
       onDragEnter={(event) => {
         event.preventDefault()
         dragDepth.current += 1
@@ -134,16 +180,24 @@ export default function Chat({ component }: { component: ChatComponent }) {
       }}
       onDrop={onDrop}
     >
-      {dragging && (
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-accent-tint"
-        >
-          <p className="text-sm font-semibold text-accent">Drop photos here</p>
-        </div>
-      )}
+      <AnimatePresence>
+        {dragging && (
+          <motion.div
+            key="drop-overlay"
+            aria-hidden="true"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={CHIP_TRANSITION}
+            className="absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-accent-tint"
+          >
+            <p className="text-sm font-semibold text-accent">Drop photos here</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <div ref={scrollRef} className="scroll-slim max-h-72 min-h-24 space-y-3 overflow-y-auto pr-1">
+      {/* The only inner scroll: long chats scroll here, never the page. */}
+      <div ref={scrollRef} className="scroll-slim min-h-16 flex-1 space-y-3 overflow-y-auto pr-1">
         {messages.map((message) => (
           <div
             key={message.id}
@@ -159,23 +213,13 @@ export default function Chat({ component }: { component: ChatComponent }) {
             >
               {message.attachments !== undefined && message.attachments.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5">
-                  {message.attachments.map((attachment) =>
-                    attachment.url !== null ? (
-                      <img
-                        key={attachment.name}
-                        src={attachment.url}
-                        alt={attachment.name}
-                        className="h-14 w-14 rounded-lg border border-slate-200 object-cover"
-                      />
-                    ) : (
-                      <span
-                        key={attachment.name}
-                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-400"
-                      >
-                        {attachment.name}
-                      </span>
-                    ),
-                  )}
+                  {message.attachments.map((attachment) => (
+                    <AttachmentThumb
+                      key={attachment.id}
+                      attachment={attachment}
+                      className="h-14 w-14"
+                    />
+                  ))}
                 </div>
               )}
               {message.content}
@@ -187,47 +231,64 @@ export default function Chat({ component }: { component: ChatComponent }) {
             </div>
           </div>
         ))}
-        {messages.length <= 1 && (
-          <p className="text-sm text-slate-400">Drop photos here.</p>
-        )}
       </div>
 
-      {attachments.length > 0 && (
-        <ul className="flex flex-wrap gap-2" aria-label="Attachments to send">
-          {attachments.map((attachment) => (
-            <li
-              key={attachment.id}
-              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 pr-2"
-            >
-              {attachment.url !== null ? (
-                <img
-                  src={attachment.url}
-                  alt=""
-                  className="h-8 w-8 rounded-md border border-slate-200 object-cover"
-                />
-              ) : (
-                <span
-                  aria-hidden="true"
-                  className="h-8 w-8 rounded-md border border-slate-200 bg-white"
-                />
-              )}
-              <span className="max-w-36 truncate text-xs font-medium text-ink">{attachment.name}</span>
-              <span className="text-xs text-slate-400">{formatBytes(attachment.size)}</span>
-              <button
-                type="button"
-                onClick={() => removeAttachment(attachment.id)}
-                aria-label={`Remove ${attachment.name}`}
-                className="flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-200 hover:text-ink"
-              >
-                <X size={12} aria-hidden="true" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <AnimatePresence initial={false}>
+        {attachments.length > 0 && (
+          <motion.ul
+            key="pending-attachments"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={CHIP_TRANSITION}
+            className="flex shrink-0 flex-wrap gap-2"
+            aria-label="Attachments to send"
+          >
+            <AnimatePresence initial={false}>
+              {attachments.map((attachment) => (
+                <motion.li
+                  key={attachment.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.92 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.92 }}
+                  transition={CHIP_TRANSITION}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 pr-2"
+                >
+                  {attachment.url !== null ? (
+                    <img
+                      src={attachment.url}
+                      alt=""
+                      className="h-8 w-8 rounded-md border border-slate-200 object-cover"
+                    />
+                  ) : (
+                    <FileText
+                      aria-hidden="true"
+                      size={16}
+                      className="h-8 w-8 rounded-md border border-slate-200 bg-white p-1.5 text-slate-400"
+                    />
+                  )}
+                  <span className="max-w-36 truncate text-xs font-medium text-ink">
+                    {attachment.name}
+                  </span>
+                  <span className="text-xs text-slate-400">{formatBytes(attachment.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(attachment.id)}
+                    aria-label={`Remove ${attachment.name}`}
+                    className="flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-200 hover:text-ink"
+                  >
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                </motion.li>
+              ))}
+            </AnimatePresence>
+          </motion.ul>
+        )}
+      </AnimatePresence>
 
       <form
-        className="flex gap-2"
+        className="flex shrink-0 gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           send()

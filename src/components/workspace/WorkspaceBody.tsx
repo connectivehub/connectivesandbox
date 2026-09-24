@@ -1,9 +1,12 @@
 // Main working area shared by the workspace screen and the admin live preview.
-// With the dashboard collapsed (default on first land — judges have not run)
-// the observability banner sits above a full-width working surface; expanding
-// restores the 60/40 two-pane layout, dashboard first below tablet. The
-// surface stays mounted across the toggle so intake state (chat transcript,
-// attachments) never resets.
+// The dashboard defaults to the side panel on wide viewports and the
+// observability banner below the tablet breakpoint (manual toggle wins until
+// the next breakpoint crossing). Panel/banner switch animates with
+// framer-motion; the surface stays mounted so intake state (chat transcript,
+// attachments) never resets. Chat-first specs render viewport-locked: no
+// inner scroll on the surface, the chat's message list scrolls instead.
+
+import { AnimatePresence, motion } from 'framer-motion'
 
 import ObservabilityBanner from '@/components/workspace/ObservabilityBanner'
 import DashboardPane from '@/components/workspace/DashboardPane'
@@ -11,30 +14,56 @@ import IntakeSurface from '@/components/workspace/IntakeSurface'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/state/workspace'
 
+const SWITCH_TRANSITION = { duration: 0.18, ease: 'easeOut' as const }
+
 export default function WorkspaceBody() {
-  const { dashboardExpanded } = useWorkspace()
+  const { spec, dashboardExpanded } = useWorkspace()
+  const chatLocked = spec.intake.components.some((component) => component.type === 'chat')
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {!dashboardExpanded && <ObservabilityBanner />}
+      <AnimatePresence mode="wait" initial={false}>
+        {!dashboardExpanded && (
+          <motion.div
+            key="banner"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={SWITCH_TRANSITION}
+          >
+            <ObservabilityBanner />
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <section
           aria-label="Working surface"
           className={cn(
-            'scroll-slim order-2 min-h-0 flex-1 overflow-y-auto px-6 py-6 lg:order-1 lg:flex-none',
+            'order-2 min-h-0 flex-1 px-6 lg:order-1 lg:flex-none',
+            'py-6',
+            chatLocked
+              ? 'overflow-hidden py-4'
+              : 'scroll-slim overflow-y-auto',
             dashboardExpanded ? 'lg:w-[60%]' : 'lg:w-full',
           )}
         >
           <IntakeSurface />
         </section>
-        {dashboardExpanded && (
-          <section
-            aria-label="Dashboard"
-            className="scroll-slim order-1 min-h-0 flex-1 overflow-y-auto border-t border-slate-200 bg-slate-50 px-6 py-6 lg:order-2 lg:w-[40%] lg:flex-none lg:border-l lg:border-t-0"
-          >
-            <DashboardPane />
-          </section>
-        )}
+        <AnimatePresence initial={false}>
+          {dashboardExpanded && (
+            <motion.section
+              key="dashboard"
+              aria-label="Dashboard"
+              initial={{ opacity: 0, x: 12 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0 }}
+              transition={SWITCH_TRANSITION}
+              className="scroll-slim order-1 min-h-0 flex-1 overflow-y-auto border-t border-slate-200 bg-slate-50 px-6 py-6 lg:order-2 lg:w-[40%] lg:flex-none lg:border-l lg:border-t-0"
+            >
+              <DashboardPane />
+            </motion.section>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )
