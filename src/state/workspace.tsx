@@ -32,6 +32,8 @@ interface WorkspaceContextValue {
   runCount: number
   dashboardExpanded: boolean
   setDashboardExpanded: (expanded: boolean) => void
+  /** True when every blocking intake component has a value. */
+  intakeComplete: boolean
   run: () => void
   setIntakeValue: (id: string, value: unknown) => void
   getIntakeValue: (id: string) => unknown
@@ -39,8 +41,8 @@ interface WorkspaceContextValue {
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 
-/** Components whose completion blocks an automatic judge run. */
-function isIntakeComplete(spec: WorkflowSpec, intake: IntakeState): boolean {
+/** Components whose completion blocks a submit. */
+export function isIntakeComplete(spec: WorkflowSpec, intake: IntakeState): boolean {
   return spec.intake.components.every((component) => {
     const value = intake[component.id]
     switch (component.type) {
@@ -62,13 +64,6 @@ function isIntakeComplete(spec: WorkflowSpec, intake: IntakeState): boolean {
   })
 }
 
-function hasBlockingComponents(spec: WorkflowSpec): boolean {
-  return spec.intake.components.some(
-    (component) =>
-      component.type === 'form' || component.type === 'button_group' || component.type === 'text_field',
-  )
-}
-
 export function WorkspaceProvider({
   workflowId,
   spec,
@@ -83,13 +78,28 @@ export function WorkspaceProvider({
   const [results, setResults] = useState<JudgeRunResult[]>([])
   const [decisions, setDecisions] = useState<DecisionRecord[]>([])
   const [runCount, setRunCount] = useState(0)
-  // Dashboard starts collapsed: judges have not run, so the client lands on
-  // the working surface with an observability banner instead of the panes.
-  const [dashboardExpanded, setDashboardExpanded] = useState(false)
+  // Dashboard defaults to the side panel on wide viewports and the banner
+  // below the tablet breakpoint. A manual toggle wins until the viewport
+  // crosses the breakpoint again, then the responsive default takes over.
+  const TABLET_QUERY = '(min-width: 1024px)'
+  const [isWide, setIsWide] = useState(() => window.matchMedia(TABLET_QUERY).matches)
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
+  useEffect(() => {
+    const query = window.matchMedia(TABLET_QUERY)
+    const onChange = (event: MediaQueryListEvent) => {
+      setManualExpanded(null)
+      setIsWide(event.matches)
+    }
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+  const dashboardExpanded = manualExpanded ?? isWide
+  const setDashboardExpanded = useCallback((expanded: boolean) => {
+    setManualExpanded(expanded)
+  }, [])
   const runningRef = useRef(false)
   // Latest intake snapshot so runs never read stale state from a closure.
   const intakeRef = useRef<IntakeState>({})
-  const wasCompleteRef = useRef(false)
 
   const setIntakeValue = useCallback((id: string, value: unknown) => {
     setIntake((previous) => {
@@ -133,16 +143,7 @@ export function WorkspaceProvider({
     })()
   }, [spec, workflowId])
 
-  // Completing the intake IS the run: filling every blocking component
-  // triggers the judgment pass automatically. Chat-only specs submit via the
-  // chat's send control instead.
-  useEffect(() => {
-    const complete = isIntakeComplete(spec, intake)
-    if (complete && !wasCompleteRef.current && hasBlockingComponents(spec)) {
-      run()
-    }
-    wasCompleteRef.current = complete
-  }, [intake, spec, run])
+  const intakeComplete = isIntakeComplete(spec, intake)
 
   const value = useMemo<WorkspaceContextValue>(
     () => ({
@@ -155,6 +156,7 @@ export function WorkspaceProvider({
       runCount,
       dashboardExpanded,
       setDashboardExpanded,
+      intakeComplete,
       run,
       setIntakeValue,
       getIntakeValue,
@@ -168,6 +170,8 @@ export function WorkspaceProvider({
       decisions,
       runCount,
       dashboardExpanded,
+      setDashboardExpanded,
+      intakeComplete,
       run,
       setIntakeValue,
       getIntakeValue,
