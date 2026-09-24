@@ -4,6 +4,7 @@
 // live preview.
 
 import { Suspense } from 'react'
+import { ChevronsDownUp } from 'lucide-react'
 
 import { dashboardRegistry } from '@/engine/registry'
 import type { DashboardPanel } from '@/engine/types'
@@ -31,10 +32,22 @@ function PanelCard({ panel }: { panel: DashboardPanel }) {
 }
 
 export default function DashboardPane() {
-  const { spec } = useWorkspace()
+  const { spec, setDashboardExpanded } = useWorkspace()
   return (
     <div className="space-y-4">
-      <Eyebrow>Dashboard</Eyebrow>
+      <div className="flex items-center justify-between gap-2">
+        <Eyebrow>Dashboard</Eyebrow>
+        <button
+          type="button"
+          onClick={() => setDashboardExpanded(false)}
+          aria-expanded={true}
+          aria-label="Collapse dashboard to banner"
+          title="Collapse dashboard"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-white hover:text-accent"
+        >
+          <ChevronsDownUp size={15} aria-hidden="true" />
+        </button>
+      </div>
       {spec.dashboard.panels.map((panel: DashboardPanel) => (
         <PanelCard key={panel.id} panel={panel} />
       ))}

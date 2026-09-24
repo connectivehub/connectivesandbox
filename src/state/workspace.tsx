@@ -8,6 +8,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -29,12 +30,44 @@ interface WorkspaceContextValue {
   results: JudgeRunResult[]
   decisions: DecisionRecord[]
   runCount: number
+  dashboardExpanded: boolean
+  setDashboardExpanded: (expanded: boolean) => void
   run: () => void
   setIntakeValue: (id: string, value: unknown) => void
   getIntakeValue: (id: string) => unknown
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
+
+/** Components whose completion blocks an automatic judge run. */
+function isIntakeComplete(spec: WorkflowSpec, intake: IntakeState): boolean {
+  return spec.intake.components.every((component) => {
+    const value = intake[component.id]
+    switch (component.type) {
+      case 'form': {
+        const record = (value ?? {}) as Record<string, unknown>
+        return component.fields.every(
+          (field) => !field.required || String(record[field.id] ?? '').trim().length > 0,
+        )
+      }
+      case 'button_group':
+        if (Array.isArray(value)) return value.length > 0
+        return value !== undefined && value !== null && value !== ''
+      case 'text_field':
+        return typeof value === 'string' && value.trim().length > 0
+      default:
+        // chat submits explicitly; file_upload never blocks.
+        return true
+    }
+  })
+}
+
+function hasBlockingComponents(spec: WorkflowSpec): boolean {
+  return spec.intake.components.some(
+    (component) =>
+      component.type === 'form' || component.type === 'button_group' || component.type === 'text_field',
+  )
+}
 
 export function WorkspaceProvider({
   workflowId,
@@ -50,10 +83,20 @@ export function WorkspaceProvider({
   const [results, setResults] = useState<JudgeRunResult[]>([])
   const [decisions, setDecisions] = useState<DecisionRecord[]>([])
   const [runCount, setRunCount] = useState(0)
+  // Dashboard starts collapsed: judges have not run, so the client lands on
+  // the working surface with an observability banner instead of the panes.
+  const [dashboardExpanded, setDashboardExpanded] = useState(false)
   const runningRef = useRef(false)
+  // Latest intake snapshot so runs never read stale state from a closure.
+  const intakeRef = useRef<IntakeState>({})
+  const wasCompleteRef = useRef(false)
 
   const setIntakeValue = useCallback((id: string, value: unknown) => {
-    setIntake((previous) => ({ ...previous, [id]: value }))
+    setIntake((previous) => {
+      const next = { ...previous, [id]: value }
+      intakeRef.current = next
+      return next
+    })
   }, [])
 
   const getIntakeValue = useCallback((id: string) => intake[id], [intake])
@@ -64,7 +107,7 @@ export function WorkspaceProvider({
     setRunStatus('running')
     void (async () => {
       const startedAt = performance.now()
-      const judgeRun = await runJudges(spec, intake, getJudgeProvider())
+      const judgeRun = await runJudges(spec, intakeRef.current, getJudgeProvider())
       const elapsedMs = performance.now() - startedAt
       const questionByJudgeId = new Map(spec.judges.map((judge) => [judge.id, judge.question]))
       const now = new Date().toISOString()
@@ -88,7 +131,18 @@ export function WorkspaceProvider({
       setRunStatus('ready')
       runningRef.current = false
     })()
-  }, [intake, spec, workflowId])
+  }, [spec, workflowId])
+
+  // Completing the intake IS the run: filling every blocking component
+  // triggers the judgment pass automatically. Chat-only specs submit via the
+  // chat's send control instead.
+  useEffect(() => {
+    const complete = isIntakeComplete(spec, intake)
+    if (complete && !wasCompleteRef.current && hasBlockingComponents(spec)) {
+      run()
+    }
+    wasCompleteRef.current = complete
+  }, [intake, spec, run])
 
   const value = useMemo<WorkspaceContextValue>(
     () => ({
@@ -99,11 +153,25 @@ export function WorkspaceProvider({
       results,
       decisions,
       runCount,
+      dashboardExpanded,
+      setDashboardExpanded,
       run,
       setIntakeValue,
       getIntakeValue,
     }),
-    [workflowId, spec, intake, runStatus, results, decisions, runCount, run, setIntakeValue, getIntakeValue],
+    [
+      workflowId,
+      spec,
+      intake,
+      runStatus,
+      results,
+      decisions,
+      runCount,
+      dashboardExpanded,
+      run,
+      setIntakeValue,
+      getIntakeValue,
+    ],
   )
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>

@@ -1,14 +1,16 @@
-// Client workspace: ink top bar, 220px read-only workflow sidebar, and a
-// two-pane main area — 60% working surface (intake, spec order) and 40%
-// dashboard (panels, spec order). Below tablet the panes stack with the
+// Client workspace: ink top bar, collapsible 220px read-only workflow sidebar
+// (icon rail by default, hover flyout, click pins open), and a main area —
+// observability banner over a full-width surface when the dashboard is
+// collapsed, 60/40 panes when expanded. Below tablet the panes stack with the
 // dashboard first. One WorkspaceProvider wraps both panes so intake values
 // and judge results are shared.
 
 import { useEffect, useState } from 'react'
+import { Layers } from 'lucide-react'
 
 import AppTopBar from '@/components/AppTopBar'
-import DashboardPane from '@/components/workspace/DashboardPane'
-import IntakeSurface from '@/components/workspace/IntakeSurface'
+import WorkspaceBody from '@/components/workspace/WorkspaceBody'
+import { CollapsibleRail } from '@/components/ui/CollapsibleRail'
 import { Eyebrow } from '@/components/ui/Primitives'
 import { getWorkflowSpec, listWorkflows } from '@/data/adapters/workflows'
 import type { WorkflowSummary } from '@/data/types'
@@ -47,46 +49,72 @@ export default function Workspace() {
     }
   }, [selectedId])
 
-  return (
-    <div className="flex h-screen flex-col bg-white">
-      <AppTopBar context="Workspace" />
-      <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-[220px] shrink-0 flex-col gap-2 border-r border-slate-200 bg-slate-50 px-3 py-4 md:flex">
-          <Eyebrow className="px-2">Workflows</Eyebrow>
-          <nav aria-label="Provisioned workflows" className="space-y-1">
-            {workflows.map((workflow) => (
-              <button
-                key={workflow.id}
-                type="button"
-                onClick={() => setSelectedId(workflow.id)}
-                aria-current={workflow.id === selectedId ? 'page' : undefined}
-                className={cn(
-                  'block w-full rounded-lg px-3 py-2.5 text-left transition-colors',
-                  workflow.id === selectedId
-                    ? 'bg-white text-ink shadow-sm ring-1 ring-slate-200'
-                    : 'text-slate-600 hover:bg-white/60 hover:text-ink',
-                )}
-              >
-                <span
-                  className={cn(
-                    'block truncate text-sm font-medium',
-                    workflow.id === selectedId && 'text-accent',
-                  )}
-                >
-                  {workflow.name}
-                </span>
-                <span className="mt-0.5 block truncate text-xs text-slate-400">
-                  v{workflow.version}
-                </span>
-              </button>
-            ))}
-          </nav>
-          <p className="mt-auto px-2 text-xs leading-relaxed text-slate-400">
-            Workflows are provisioned by your administrator and read-only here.
-          </p>
-        </aside>
+  const sidebarContent = (
+    <>
+      <div className="flex items-center justify-between gap-2 px-2 pr-10">
+        <Eyebrow>Workflows</Eyebrow>
+      </div>
+      <nav aria-label="Provisioned workflows" className="space-y-1">
+        {workflows.map((workflow) => (
+          <button
+            key={workflow.id}
+            type="button"
+            onClick={() => setSelectedId(workflow.id)}
+            aria-current={workflow.id === selectedId ? 'page' : undefined}
+            className={cn(
+              'block w-full rounded-lg px-3 py-2.5 text-left transition-colors',
+              workflow.id === selectedId
+                ? 'bg-white text-ink shadow-sm ring-1 ring-slate-200'
+                : 'text-slate-600 hover:bg-white/60 hover:text-ink',
+            )}
+          >
+            <span
+              className={cn(
+                'block truncate text-sm font-medium',
+                workflow.id === selectedId && 'text-accent',
+              )}
+            >
+              {workflow.name}
+            </span>
+            <span className="mt-0.5 block truncate text-xs text-slate-400">
+              v{workflow.version}
+            </span>
+          </button>
+        ))}
+      </nav>
+    </>
+  )
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+  return (
+    <div className="flex h-dvh flex-col overflow-hidden bg-white">
+      <AppTopBar context="Workspace" />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <CollapsibleRail
+          width={220}
+          label="workflows"
+          className="hidden border-r border-slate-200 bg-slate-50 md:block"
+          rail={workflows.map((workflow) => (
+            <button
+              key={workflow.id}
+              type="button"
+              onClick={() => setSelectedId(workflow.id)}
+              aria-label={workflow.name}
+              title={workflow.name}
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-lg transition',
+                workflow.id === selectedId
+                  ? 'bg-accent-tint text-accent'
+                  : 'text-slate-400 hover:bg-white hover:text-ink',
+              )}
+            >
+              <Layers size={16} aria-hidden="true" />
+            </button>
+          ))}
+        >
+          {sidebarContent}
+        </CollapsibleRail>
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {workflows.length > 1 && (
             <div className="border-b border-slate-200 px-4 py-2 md:hidden">
               <label htmlFor="workflow-switcher" className="sr-only">
@@ -109,18 +137,7 @@ export default function Workspace() {
 
           {spec !== null && selectedId !== null ? (
             <WorkspaceProvider key={spec.name} workflowId={selectedId} spec={spec}>
-              <section
-                aria-label="Working surface"
-                className="order-2 min-h-0 overflow-y-auto px-6 py-6 lg:order-1 lg:w-[60%] lg:shrink-0"
-              >
-                <IntakeSurface />
-              </section>
-              <section
-                aria-label="Dashboard"
-                className="order-1 min-h-0 overflow-y-auto border-t border-slate-200 bg-slate-50 px-6 py-6 lg:order-2 lg:w-[40%] lg:shrink-0 lg:border-l lg:border-t-0"
-              >
-                <DashboardPane />
-              </section>
+              <WorkspaceBody />
             </WorkspaceProvider>
           ) : (
             <p className="px-6 py-6 text-sm text-slate-400">Loading workflow…</p>

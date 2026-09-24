@@ -11,27 +11,18 @@ export const photoToQuoteTriage: WorkflowSpec = {
   intake: {
     components: [
       {
-        type: 'file_upload',
-        id: 'site_photos',
-        label: 'Photos of the curtains, sofa, or carpet',
-        accept: ['image/png', 'image/jpeg', 'image/webp'],
-        multiple: true,
-        instructions:
-          'Upload clear, well-lit photos of the item and the room. Include one wide shot and at least one close-up of the fabric or pile.',
-      },
-      {
         type: 'chat',
         id: 'intake_chat',
         placeholder: 'Describe the job — room, item, and any deadlines…',
         opening_message:
-          'Good day! Upload your photos and tell us a little about the job. We will come back with a quote or one quick question.',
+          'Good day! Drop your photos here and tell us a little about the job. We will come back with a quote or one quick question.',
       },
     ],
   },
   judges: [
     {
       id: 'pricing-readiness',
-      state_from: ['site_photos', 'intake_chat'],
+      state_from: ['intake_chat'],
       question: 'Are the uploaded photos legible enough to price this job?',
       question_type: 'choice',
       options: ['quotable', 'one-ask', 'site-visit'],
@@ -39,7 +30,7 @@ export const photoToQuoteTriage: WorkflowSpec = {
     },
     {
       id: 'job-archetype',
-      state_from: ['site_photos', 'intake_chat'],
+      state_from: ['intake_chat'],
       question: 'Which job archetype does this request belong to?',
       question_type: 'choice',
       options: ['curtain', 'blind', 'carpet', 'rug', 'sofa', 'mattress', 'mixed'],
@@ -47,7 +38,7 @@ export const photoToQuoteTriage: WorkflowSpec = {
     },
     {
       id: 'follow-up-question',
-      state_from: ['site_photos', 'intake_chat'],
+      state_from: ['intake_chat'],
       question: 'Which ONE follow-up question would unblock this job?',
       question_type: 'choice',
       options: ['window_width', 'fabric_type', 'ceiling_height', 'room_access', 'budget_range'],
