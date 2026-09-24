@@ -41,6 +41,8 @@ export interface DecisionRecord {
   confidence: number
   disposition: DecisionDisposition
   created_at: string
+  /** Milliseconds the judge took; absent on rows imported from older backends. */
+  latency_ms?: number
 }
 
 export interface ChatMessage {
