@@ -1,0 +1,19 @@
+/* Tailwind v4 entry. Phase 2+ applies the Connective Labs brand (single accent
+   #FF6B35, ink #091426, slate neutrals, system font stack only). The scaffold
+   deliberately ships no custom styling. */
+
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --color-accent: #FF6B35;
+  --color-ink: #091426;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  font-family: var(--font-sans);
+}
