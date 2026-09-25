@@ -11,6 +11,7 @@
   --color-accent-hover: #e55a2a;
   --color-accent-pressed: #c94f1a;
   --color-accent-tint: rgb(255 107 53 / 0.05);
+  --color-accent-wash: #fff1e9;
   --color-ink: #091426;
   --color-surface-dark: #0f172a;
   --color-surface-raised: #1e293b;
@@ -39,6 +40,28 @@
 
 :root {
   color-scheme: light;
+}
+
+/* WhatsApp-style bubble tails (polish 3): a subtle triangle at the top
+   corner, coloured to match its bubble. Incoming tails attach top-left,
+   outgoing top-right. */
+.bubble-tail-out::after,
+.bubble-tail-in::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 9px;
+  height: 13px;
+}
+.bubble-tail-out::after {
+  right: -8px;
+  background: var(--color-accent-wash);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+.bubble-tail-in::after {
+  left: -8px;
+  background: #ffffff;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
 }
 
 html,

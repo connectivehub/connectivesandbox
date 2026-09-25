@@ -1,22 +1,24 @@
-// Registry entry for intake component type "chat": viewport-locked message
-// list with the spec's opening message, streaming-cursor typing state, and a
-// pinned composer. Files can be dragged anywhere onto the panel or attached
-// via the clip control; they wait as preview chips and travel with the sent
-// message — object URLs live as long as the message renders, with a filename
-// chip fallback when a thumbnail cannot.
+// Registry entry for intake component type "chat": WhatsApp-Web-style
+// transcript (polish 3) — tailed bubbles, in-bubble timestamps with slate
+// ticks, sparse date separators, flat slate-50 chat surface. Files can be
+// dragged anywhere onto the panel or attached via the clip control; they wait
+// as preview chips above the composer and travel inside the sent message
+// bubble with a spinner until the run confirms — object URLs live as long as
+// the message renders, with a filename chip fallback when a thumbnail cannot.
 // Two modes (from the workspace context): 'preview' keeps the local echo
-// reply, 'live' streams the GLM reply from the client-chat Edge Function — sending
-// the message uploads the attachments to storage and triggers the batched
-// judge run, so submitting the intake IS the run.
+// reply, 'live' streams the GLM reply from the client-chat Edge Function —
+// sending the message uploads the attachments to storage and triggers the
+// batched judge run, so submitting the intake IS the run.
 
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { FileText, Paperclip, Send, X } from 'lucide-react'
+import { FileText, Loader2, Paperclip, Send, X } from 'lucide-react'
 
 import type { IntakeComponent } from '@/engine/types'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/format'
 import { Card } from '@/components/ui/Primitives'
+import { Bubble, DaySeparator, isNewDay } from '@/components/chat/Bubble'
 import { useWorkspace } from '@/state/workspace'
 import { getHistory } from '@/data/adapters/chat'
 
@@ -40,7 +42,10 @@ interface ChatEntry {
   id: string
   role: 'user' | 'assistant'
   content: string
+  at: string
   attachments?: SentAttachment[]
+  /** True until the run behind the send confirms. */
+  sending?: boolean
 }
 
 const PREVIEW_REPLY = 'Noted — added to the job details.'
@@ -80,10 +85,19 @@ function AttachmentThumb({
   )
 }
 
+/** Sending-state overlay for in-bubble attachments: dim plus spinner. */
+function SendingOverlay() {
+  return (
+    <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-ink/40">
+      <Loader2 size={14} aria-hidden="true" className="animate-spin text-white" />
+    </span>
+  )
+}
+
 export default function Chat({ component }: { component: ChatComponent }) {
   const { runStatus, run, mode, sendChatMessage, chatBusy, sessionId } = useWorkspace()
   const [messages, setMessages] = useState<ChatEntry[]>([
-    { id: 'opening', role: 'assistant', content: component.opening_message },
+    { id: 'opening', role: 'assistant', content: component.opening_message, at: new Date().toISOString() },
   ])
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [draft, setDraft] = useState('')
@@ -96,6 +110,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
   const disabled = runStatus === 'running' || pending || chatBusy
   // Loaded-once guard: server history merges in when a session exists.
   const loadedSessionRef = useRef<string | null>(null)
+  const canSend = draft.trim().length > 0 || attachments.length > 0
 
   // Live mode: pull the persisted conversation for this session (real
   // `messages` rows) once the session is known.
@@ -110,6 +125,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
           id: entry.id,
           role: entry.role,
           content: entry.content,
+          at: entry.created_at,
         })),
       ])
     })
@@ -175,9 +191,17 @@ export default function Chat({ component }: { component: ChatComponent }) {
     const sent: SentAttachment[] = attachments.map(({ id, name, url }) => ({ id, name, url }))
     const rawFiles = attachments.map(({ file }) => file)
     setAttachments([])
+    const sentAt = new Date().toISOString()
     setMessages((previous) => [
       ...previous,
-      { id: `msg_${Date.now()}`, role: 'user', content, attachments: sent.length > 0 ? sent : undefined },
+      {
+        id: `msg_${Date.now()}`,
+        role: 'user',
+        content,
+        at: sentAt,
+        attachments: sent.length > 0 ? sent : undefined,
+        sending: true,
+      },
     ])
 
     if (mode === 'live') {
@@ -185,7 +209,10 @@ export default function Chat({ component }: { component: ChatComponent }) {
       // attachments through signed URLs, fires the batched judge call, then
       // streams the GLM reply from the client-chat gateway.
       const replyId = `msg_${Date.now()}_reply`
-      setMessages((previous) => [...previous, { id: replyId, role: 'assistant', content: '' }])
+      setMessages((previous) => [
+        ...previous,
+        { id: replyId, role: 'assistant', content: '', at: new Date().toISOString() },
+      ])
       setPending(true)
       let streamed = ''
       void sendChatMessage(content, rawFiles, (delta) => {
@@ -197,7 +224,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
         )
       })
         .catch((error: unknown) => {
-          const note = `⚠️ ${(error instanceof Error ? error.message : 'Chat failed')}`
+          const note = `Chat failed: ${error instanceof Error ? error.message : 'unknown error'}`
           setMessages((previous) =>
             previous.map((message) =>
               message.id === replyId
@@ -206,19 +233,35 @@ export default function Chat({ component }: { component: ChatComponent }) {
             ),
           )
         })
-        .finally(() => setPending(false))
+        .finally(() => {
+          setPending(false)
+          // The run confirmed — flip the ticks and drop the sending spinner.
+          setMessages((previous) =>
+            previous.map((message) =>
+              message.sending === true ? { ...message, sending: false } : message,
+            ),
+          )
+        })
       return
     }
 
     // Preview: local echo reply (the run itself goes through the engine).
     const replyId = `msg_${Date.now()}_reply`
-    setMessages((previous) => [...previous, { id: replyId, role: 'assistant', content: '' }])
+    setMessages((previous) => [
+      ...previous,
+      { id: replyId, role: 'assistant', content: '', at: new Date().toISOString() },
+    ])
     setPending(true)
     // Submitting the intake IS the run — the message (with attachments)
     // triggers the judgment pass; results populate the dashboard/banner.
     run()
     window.setTimeout(() => {
       setPending(false)
+      setMessages((previous) =>
+        previous.map((message) =>
+          message.sending === true ? { ...message, sending: false } : message,
+        ),
+      )
       setTyping({ messageId: replyId, full: PREVIEW_REPLY })
     }, 900)
   }
@@ -249,44 +292,40 @@ export default function Chat({ component }: { component: ChatComponent }) {
             transition={CHIP_TRANSITION}
             className="absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-accent-tint"
           >
-            <p className="text-sm font-semibold text-accent">Drop photos here</p>
+            <p className="text-sm font-semibold text-accent">Drop to send</p>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* The only inner scroll: long chats scroll here, never the page. */}
-      <div ref={scrollRef} className="scroll-slim min-h-16 flex-1 space-y-3 overflow-y-auto pr-1">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={cn('flex', message.role === 'user' ? 'justify-end' : 'justify-start')}
-          >
-            <div
-              className={cn(
-                'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
-                message.role === 'user'
-                  ? 'bg-accent-tint text-ink'
-                  : 'border border-slate-200 bg-white text-slate-600',
-              )}
-            >
+      {/* The only inner scroll: long chats scroll here, never the page.
+          Flat slate-50 chat surface (brand recolour, no wallpaper image). */}
+      <div
+        ref={scrollRef}
+        className="scroll-slim min-h-16 flex-1 space-y-2.5 overflow-y-auto rounded-xl bg-slate-50 px-3 py-3"
+      >
+        {messages.map((message, index) => (
+          <div key={message.id} className="space-y-2.5">
+            {isNewDay(index > 0 ? messages[index - 1].at : undefined, message.at) && (
+              <DaySeparator iso={message.at} />
+            )}
+            <Bubble role={message.role} at={message.at} sending={message.sending}>
               {message.attachments !== undefined && message.attachments.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5">
                   {message.attachments.map((attachment) => (
-                    <AttachmentThumb
-                      key={attachment.id}
-                      attachment={attachment}
-                      className="h-14 w-14"
-                    />
+                    <span key={attachment.id} className="relative">
+                      <AttachmentThumb attachment={attachment} className="h-14 w-14" />
+                      {message.sending === true && <SendingOverlay />}
+                    </span>
                   ))}
                 </div>
               )}
-              {message.content}
+              <span className="whitespace-pre-wrap">{message.content}</span>
               {(typing?.messageId === message.id || (pending && message.role === 'assistant')) && (
                 <span aria-hidden="true" className="ml-0.5 animate-pulse font-semibold text-accent">
                   ▍
                 </span>
               )}
-            </div>
+            </Bubble>
           </div>
         ))}
       </div>
@@ -311,19 +350,19 @@ export default function Chat({ component }: { component: ChatComponent }) {
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.92 }}
                   transition={CHIP_TRANSITION}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1.5 pr-2"
+                  className="flex items-center gap-2 rounded-full border border-slate-200 bg-white py-1.5 pl-1.5 pr-2"
                 >
                   {attachment.url !== null ? (
                     <img
                       src={attachment.url}
                       alt=""
-                      className="h-8 w-8 rounded-md border border-slate-200 object-cover"
+                      className="h-8 w-8 rounded-full border border-slate-200 object-cover"
                     />
                   ) : (
                     <FileText
                       aria-hidden="true"
                       size={16}
-                      className="h-8 w-8 rounded-md border border-slate-200 bg-white p-1.5 text-slate-400"
+                      className="h-8 w-8 rounded-full border border-slate-200 bg-slate-50 p-1.5 text-slate-400"
                     />
                   )}
                   <span className="max-w-36 truncate text-xs font-medium text-ink">
@@ -334,7 +373,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
                     type="button"
                     onClick={() => removeAttachment(attachment.id)}
                     aria-label={`Remove ${attachment.name}`}
-                    className="flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-200 hover:text-ink"
+                    className="flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-ink"
                   >
                     <X size={12} aria-hidden="true" />
                   </button>
@@ -346,7 +385,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
       </AnimatePresence>
 
       <form
-        className="flex shrink-0 gap-2"
+        className="flex shrink-0 items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           send()
@@ -370,9 +409,9 @@ export default function Chat({ component }: { component: ChatComponent }) {
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
           aria-label="Attach photos"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition hover:border-accent hover:text-accent disabled:opacity-40"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-ink disabled:opacity-40"
         >
-          <Paperclip size={16} aria-hidden="true" />
+          <Paperclip size={18} aria-hidden="true" />
         </button>
         <input
           value={draft}
@@ -380,13 +419,19 @@ export default function Chat({ component }: { component: ChatComponent }) {
           placeholder={component.placeholder}
           disabled={disabled}
           aria-label="Message"
-          className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm text-ink placeholder:text-slate-400 focus:border-accent focus:outline-none disabled:opacity-50"
+          className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-ink placeholder:text-slate-400 focus:border-accent focus:outline-none disabled:opacity-50"
         />
         <button
           type="submit"
-          disabled={disabled || draft.trim().length === 0}
+          disabled={disabled || !canSend}
           aria-label="Send message"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-white transition hover:bg-accent-hover active:bg-accent-pressed disabled:opacity-40"
+          className={cn(
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition',
+            canSend
+              ? 'border-accent bg-accent text-white hover:bg-accent-hover active:bg-accent-pressed'
+              : 'border-slate-300 bg-white text-slate-400',
+            'disabled:cursor-not-allowed disabled:opacity-40',
+          )}
         >
           <Send size={16} aria-hidden="true" />
         </button>

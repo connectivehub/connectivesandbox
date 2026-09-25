@@ -14,6 +14,8 @@ export interface BuilderChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  /** Wall-clock timestamp for the WhatsApp-style transcript. */
+  at?: string
   /** Raw spec payload attached to assistant messages that propose a workflow. */
   spec?: WorkflowSpec
 }
@@ -36,6 +38,7 @@ export function builderGreeting(): BuilderChatMessage {
     id: `bc_greeting_${Date.now()}`,
     role: 'assistant',
     content: 'Describe the workflow you need. I will draft a spec you can load into the preview.',
+    at: new Date().toISOString(),
   }
 }
 
@@ -69,6 +72,7 @@ export async function getBuilderHistory(key: string): Promise<BuilderChatMessage
     id: row.id,
     role: row.role as 'user' | 'assistant',
     content: row.content,
+    at: row.created_at,
   }))
 }
 

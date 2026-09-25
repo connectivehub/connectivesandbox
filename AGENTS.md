@@ -52,10 +52,21 @@ dependencies beyond the standard scaffold set without a captain decision.
   this project's hosted runtime does not inject `SUPABASE_JWT_SECRET`, so the
   Edge secret `JWT_SECRET` (set in Phase 4 for this purpose) is used, with a
   `SUPABASE_JWT_SECRET` fallback for portability.
-- **Rate limiters** live in the `auth_attempts` table (shared across
-  isolates): 5 failed attempts per IP / 15 min → 1-hour lockout; 50 attempts
-  per hour for any one code across all IPs. Every attempt is logged with a
-  SHA-256 HASHED code — plaintext codes are never logged.
+- **Rate limiters** were REMOVED in polish 3 (captain decision): the
+  four-digit gate is now CLIENT-SIDE. The browser validates the code against
+  the code → {role, client_id} map served publicly by the `auth-codes`
+  function (admin code from the `ADMIN_ACCESS_CODE` secret, client codes from
+  the `clients` table) — PUBLIC BY DESIGN for a sandbox, see the README
+  trade-off section. `auth-code` POST now simply mints {role, client_id} from
+  the trusted browser request: no validation, no `auth_attempts` writes, no
+  limiters. The `auth_attempts` table remains in the schema, unused.
+- **Login gate warm path (polish 3).** Login code-splits the destination
+  screens (React.lazy in App.tsx), preloads both chunks plus the code map on
+  mount, and after a code match mints the session while warming the
+  destination's data behind the gate (`src/data/prefetch.ts` viaCache read
+  through the adapters; any mutation calls `invalidateReads()`). The matched
+  screen renders dimmed/blurred/non-interactive behind the login overlay, so
+  the swap on success is instant.
 - **Gateway split.** `auth-code` issues sessions (POST), resolves them (GET),
   and clears them (DELETE). `admin-api` verifies the cookie server-side and
   performs admin CRUD with `service_role` internally; client sessions may only

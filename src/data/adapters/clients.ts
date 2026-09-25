@@ -6,6 +6,7 @@
 // no slug column.
 
 import type { Client, UsageSnapshot } from '@/data/types'
+import { viaCache, invalidateReads } from '@/data/prefetch'
 import { assertOk, callFunction, type FunctionResponse } from '@/data/api'
 
 interface ClientRow {
@@ -34,11 +35,14 @@ function withData<T>(response: FunctionResponse<T>): T {
   return response.data
 }
 
-export async function listClients(): Promise<Client[]> {
-  const { clients } = withData(
-    await callFunction<{ clients: ClientRow[] }>('/admin-api/clients'),
-  )
-  return clients.map(toClient)
+export function listClients(): Promise<Client[]> {
+  // Read-through cache: warmed behind the login gate, instant on mount.
+  return viaCache('clients', async () => {
+    const { clients } = withData(
+      await callFunction<{ clients: ClientRow[] }>('/admin-api/clients'),
+    )
+    return clients.map(toClient)
+  })
 }
 
 export async function getClient(id: string): Promise<Client | null> {
@@ -63,6 +67,7 @@ export async function createClient(name: string, code: string): Promise<Client> 
       body: { name, access_code: code },
     }),
   )
+  invalidateReads()
   return toClient(client)
 }
 
@@ -73,10 +78,12 @@ export async function renameClient(clientId: string, name: string): Promise<void
       body: { name },
     }),
   )
+  invalidateReads()
 }
 
 export async function deleteClient(clientId: string): Promise<void> {
   withData(await callFunction(`/admin-api/clients/${clientId}`, { method: 'DELETE' }))
+  invalidateReads()
 }
 
 export async function getUsageSnapshot(clientId: string, period: string): Promise<UsageSnapshot | null> {

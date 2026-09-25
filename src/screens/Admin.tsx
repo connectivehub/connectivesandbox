@@ -10,6 +10,7 @@ import { Building2, Check, ChevronDown, Pencil, Plus, Send, Trash2, Workflow, X 
 
 import AppTopBar from '@/components/AppTopBar'
 import WorkspaceBody from '@/components/workspace/WorkspaceBody'
+import { Bubble, DaySeparator, isNewDay } from '@/components/chat/Bubble'
 import { CollapsibleRail } from '@/components/ui/CollapsibleRail'
 import { Badge, Eyebrow, PrimaryButton } from '@/components/ui/Primitives'
 import { safeParseWorkflowSpec } from '@/engine/schema'
@@ -425,6 +426,7 @@ export default function Admin() {
       id: `bc_${Date.now()}`,
       role: 'user',
       content,
+      at: new Date().toISOString(),
     }
     setMessages((previous) => [...previous, userMessage])
     setChatPending(true)
@@ -435,6 +437,7 @@ export default function Admin() {
         id: `bc_${Date.now()}_assistant`,
         role: 'assistant',
         content: '',
+        at: new Date().toISOString(),
       }
       setMessages((previous) => [...previous, assistantMessage])
       let streamed = ''
@@ -455,7 +458,7 @@ export default function Admin() {
                   content: result.content,
                   ...(result.spec !== null ? { spec: result.spec } : {}),
                   ...(result.validationError !== null
-                    ? { content: `${result.content}\n\n⚠️ Spec validation: ${result.validationError}` }
+                    ? { content: `${result.content}\n\nSpec validation: ${result.validationError}` }
                     : {}),
                 }
               : message,
@@ -469,8 +472,8 @@ export default function Admin() {
                   ...message,
                   content:
                     streamed.length > 0
-                      ? `${streamed}\n\n⚠️ ${(error as Error).message}`
-                      : `⚠️ ${(error as Error).message}`,
+                      ? `${streamed}\n\n${(error as Error).message}`
+                      : (error as Error).message,
                 }
               : message,
           ),
@@ -787,32 +790,30 @@ export default function Admin() {
           </div>
 
           <div
-            className="scroll-slim min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5"
+            className="scroll-slim mx-5 my-4 min-h-0 flex-1 space-y-2.5 overflow-y-auto rounded-xl bg-slate-50 px-3 py-3"
             aria-label="Builder chat"
           >
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={cn('flex', message.role === 'user' ? 'justify-end' : 'justify-start')}
-              >
-                <div
-                  className={cn(
-                    'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
-                    message.role === 'user'
-                      ? 'bg-accent-tint text-ink'
-                      : 'border border-slate-200 bg-white text-slate-600',
+            {messages.map((message, index) => (
+              <div key={message.id} className="space-y-2.5">
+                {message.at !== undefined &&
+                  isNewDay(index > 0 ? messages[index - 1].at : undefined, message.at) && (
+                    <DaySeparator iso={message.at} />
                   )}
+                <Bubble
+                  role={message.role}
+                  at={message.at ?? new Date().toISOString()}
+                  sending={chatPending && index === messages.length - 1 && message.role === 'assistant'}
                 >
-                  {message.content}
+                  <span className="whitespace-pre-wrap">{message.content}</span>
                   {message.spec !== undefined && (
                     <SpecBlock spec={message.spec} onLoad={loadSpecIntoPreview} />
                   )}
-                </div>
+                </Bubble>
               </div>
             ))}
-            {chatPending && (
+            {chatPending && (messages.length === 0 || messages[messages.length - 1].role === 'user') && (
               <div className="flex justify-start">
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
+                <div className="relative rounded-lg rounded-tl-none border border-slate-100 bg-white px-3 py-2 text-sm shadow-sm bubble-tail-in">
                   <span aria-hidden="true" className="animate-pulse font-semibold text-accent">
                     ▍
                   </span>
@@ -822,7 +823,7 @@ export default function Admin() {
           </div>
 
           <form
-            className="flex shrink-0 gap-2 border-t border-slate-200 px-5 py-3"
+            className="flex shrink-0 items-center gap-2 border-t border-slate-200 px-5 py-3"
             onSubmit={(event) => {
               event.preventDefault()
               sendChat()
@@ -834,13 +835,19 @@ export default function Admin() {
               placeholder="Describe the workflow…"
               aria-label="Message the builder"
               disabled={chatPending}
-              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm text-ink placeholder:text-slate-400 focus:border-accent focus:outline-none disabled:opacity-50"
+              className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-ink placeholder:text-slate-400 focus:border-accent focus:outline-none disabled:opacity-50"
             />
             <button
               type="submit"
               disabled={chatPending || draft.trim().length === 0}
               aria-label="Send message"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-white transition hover:bg-accent-hover active:bg-accent-pressed disabled:opacity-40"
+              className={cn(
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition',
+                draft.trim().length > 0
+                  ? 'border-accent bg-accent text-white hover:bg-accent-hover active:bg-accent-pressed'
+                  : 'border-slate-300 bg-white text-slate-400',
+                'disabled:cursor-not-allowed disabled:opacity-40',
+              )}
             >
               <Send size={16} aria-hidden="true" />
             </button>

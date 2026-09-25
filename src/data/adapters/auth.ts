@@ -1,9 +1,12 @@
-// Real auth adapter. Codes are validated EXCLUSIVELY server-side by
-// the `auth-code` Edge Function: the browser never sees a code list, a session
-// JWT arrives in an httpOnly cookie, and session state is read from that
-// cookie.
+// Real auth adapter. The four-digit gate is CLIENT-SIDE (captain decision,
+// polish 3): the browser validates the code against the public code→{role,
+// client_id} map served by the `auth-codes` function — public by design for a
+// sandbox. A matching code mints the session JWT through the `auth-code`
+// Edge Function, which arrives as an httpOnly cookie and is only ever
+// resolved server-side.
 
 import type { AuthSession, User } from '@/data/types'
+import { viaCache } from '@/data/prefetch'
 import { ApiError, callFunction } from '@/data/api'
 
 export type AccessRole = 'admin' | 'workspace'
@@ -13,6 +16,14 @@ export interface ConsoleSession {
   client_id: string | null
 }
 
+export interface CodeEntry {
+  role: 'admin' | 'client'
+  client_id: string | null
+}
+
+/** code → role/client_id, public by design (sandbox-grade convenience gate). */
+export type AccessCodeMap = Record<string, CodeEntry>
+
 interface AuthCodeResponse {
   role?: string
   client_id?: string | null
@@ -20,18 +31,34 @@ interface AuthCodeResponse {
   error?: string
 }
 
-/** Verify a four-digit access code and establish the server-side session. */
-export async function verifyAccessCode(code: string): Promise<AccessRole> {
+/** Response shape for the public auth-codes endpoint. */
+interface AuthCodesResponse {
+  codes?: AccessCodeMap
+  error?: string
+}
+
+/** The public code map, read through the warm cache so login needs no wait. */
+export function getAccessCodeMap(): Promise<AccessCodeMap> {
+  return viaCache('auth:codes', async () => {
+    const { status, data } = await callFunction<AuthCodesResponse>('/auth-codes')
+    if (status >= 400 || data.codes === undefined) {
+      throw new ApiError(data.error ?? 'Access codes unavailable', status)
+    }
+    return data.codes
+  })
+}
+
+/** Mint the session JWT from the already-validated browser decision. */
+export async function mintSession(entry: CodeEntry): Promise<ConsoleSession> {
   const { status, data } = await callFunction<AuthCodeResponse>('/auth-code', {
     method: 'POST',
-    body: { code },
+    body: { role: entry.role, client_id: entry.client_id },
   })
-  if (status === 200 && data.role === 'admin') return 'admin'
-  if (status === 200 && data.role === 'client') return 'workspace'
-  if (status === 429) {
-    throw new ApiError(data.error ?? 'Too many attempts. Try again later.', 429)
+  if (status === 200 && data.role === 'admin') return { role: 'admin', client_id: null }
+  if (status === 200 && data.role === 'client') {
+    return { role: 'client', client_id: data.client_id ?? null }
   }
-  throw new ApiError(data.error ?? 'Incorrect access code', status)
+  throw new ApiError(data.error ?? 'Could not start the session', status)
 }
 
 /**

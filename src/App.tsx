@@ -1,55 +1,69 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { MotionConfig } from 'framer-motion'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import Admin from '@/screens/Admin'
 import Login from '@/screens/Login'
-import Workspace from '@/screens/Workspace'
-import { getSession } from '@/data/adapters/auth'
+import { getSession, type ConsoleSession } from '@/data/adapters/auth'
 
-// Real auth (Phase 5): the session lives in an httpOnly cookie, so every
-// guarded route resolves it server-side via the auth-code function. Nothing
-// about the role is decided in the browser alone.
-function RequireRole({ role, children }: { role: 'admin' | 'client'; children: ReactNode }) {
-  const [state, setState] = useState<'checking' | 'ok' | 'deny'>('checking')
+// Code splitting (polish 3): the login screen ships alone; the workspace and
+// admin chunks load in parallel during keypad entry (Login warms both on
+// mount), so post-login arrival is instant.
+const Workspace = lazy(() => import('@/screens/Workspace'))
+const Admin = lazy(() => import('@/screens/Admin'))
 
-  useEffect(() => {
-    let active = true
-    void getSession().then((session) => {
-      if (active) setState(session?.role === role ? 'ok' : 'deny')
-    })
-    return () => {
-      active = false
-    }
-  }, [role])
+function ChunkFallback() {
+  return <main className="h-dvh bg-white" aria-busy="true" />
+}
 
-  if (state === 'checking') {
-    return <main className="h-dvh bg-ink" aria-busy="true" />
-  }
-  if (state === 'deny') {
+// Real auth (Phase 5): the session lives in an httpOnly cookie, resolved
+// server-side via the auth-code function. On login the client-side gate hands
+// the freshly minted session straight up — no extra roundtrip.
+function Guard({ role, session, children }: { role: 'admin' | 'client'; session: ConsoleSession | null; children: ReactNode }) {
+  if (session?.role !== role) {
     return <Navigate to="/" replace />
   }
   return <>{children}</>
 }
 
 function App() {
+  // undefined = still resolving the cookie; null = signed out.
+  const [session, setSession] = useState<ConsoleSession | null | undefined>(undefined)
+
+  useEffect(() => {
+    let active = true
+    void getSession().then((resolved) => {
+      if (active) setSession(resolved)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  if (session === undefined) {
+    return <main className="h-dvh bg-ink" aria-busy="true" />
+  }
+
   return (
     <MotionConfig reducedMotion="user">
       <Routes>
-        <Route path="/" element={<Login />} />
+        <Route path="/" element={<Login onAuthenticated={setSession} />} />
         <Route
           path="/admin"
           element={
-            <RequireRole role="admin">
-              <Admin />
-            </RequireRole>
+            <Guard role="admin" session={session}>
+              <Suspense fallback={<ChunkFallback />}>
+                <Admin />
+              </Suspense>
+            </Guard>
           }
         />
         <Route
           path="/workspace"
           element={
-            <RequireRole role="client">
-              <Workspace />
-            </RequireRole>
+            <Guard role="client" session={session}>
+              <Suspense fallback={<ChunkFallback />}>
+                <Workspace />
+              </Suspense>
+            </Guard>
           }
         />
       </Routes>

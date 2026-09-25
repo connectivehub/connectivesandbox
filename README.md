@@ -57,7 +57,7 @@ an equivalent same-origin rewrite.
 
 ```bash
 supabase functions serve          # local
-supabase functions deploy auth-code admin-api admin-chat client-chat run-workflow artifact-api
+supabase functions deploy auth-code auth-codes admin-api admin-chat client-chat run-workflow artifact-api
 ```
 
 Configuration is by **secret NAME only** — never commit or paste values:
@@ -87,13 +87,16 @@ Configuration is by **secret NAME only** — never commit or paste values:
 
 Client access codes are stored **plaintext** in `clients.access_code` by
 design, so the admin can read a code out to a client over WhatsApp. The
-load-bearing compensating control is the rate limiting in the `auth_attempts`
-table (shared across isolates): 5 failed attempts per IP / 15 min → 1-hour
-lockout, and 50 attempts per hour for any one code across all IPs. Every
-attempt is audited with a SHA-256 **hashed** code — plaintext codes are never
-logged. For a production hardening, replace plaintext codes with
-client-specific one-time enrolment links; the rest of the auth design
-(httpOnly cookie sessions, server-side-only validation) does not need to
+four-digit gate is **client-side** (captain decision, polish 3): the browser
+validates the entered code against the code → {role, client_id} map served
+publicly by the `auth-codes` Edge Function, then the `auth-code` function
+mints the session JWT from that trusted-by-design browser decision — it does
+NOT validate codes, count attempts, or rate-limit anything. This mapping is
+PUBLIC BY DESIGN: the codes are a convenience gate for a sandbox that will
+not see enough traffic to misuse them, not a security boundary. A production
+hardening would replace them with client-specific one-time enrolment links
+and server-side validation; the rest of the auth design (httpOnly Secure
+SameSite=Strict cookie, server-side session resolution) does not need to
 change.
 
 ## Project layout

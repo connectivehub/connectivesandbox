@@ -5,6 +5,7 @@
 
 import type { WorkflowSpec } from '@/engine/types'
 import type { WorkflowSummary } from '@/data/types'
+import { viaCache, invalidateReads } from '@/data/prefetch'
 import { assertOk, callFunction, type FunctionResponse } from '@/data/api'
 
 interface WorkflowRow {
@@ -36,21 +37,26 @@ function withData<T>(response: FunctionResponse<T>): T {
   return response.data
 }
 
-export async function listWorkflows(clientId?: string): Promise<WorkflowSummary[]> {
-  const query = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
-  const { workflows } = withData(
-    await callFunction<{ workflows: WorkflowRow[] }>(`/admin-api/workflows${query}`),
-  )
-  return workflows.map(toSummary)
+export function listWorkflows(clientId?: string): Promise<WorkflowSummary[]> {
+  // Read-through cache: warmed behind the login gate, instant on mount.
+  return viaCache(`workflows:${clientId ?? 'all'}`, async () => {
+    const query = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
+    const { workflows } = withData(
+      await callFunction<{ workflows: WorkflowRow[] }>(`/admin-api/workflows${query}`),
+    )
+    return workflows.map(toSummary)
+  })
 }
 
-export async function getWorkflowSpec(workflowId: string): Promise<WorkflowSpec | null> {
-  const response = await callFunction<{ workflow?: WorkflowDetailRow; error?: string }>(
-    `/admin-api/workflows/${workflowId}`,
-  )
-  if (response.status === 404) return null
-  assertOk(response as unknown as FunctionResponse<{ error?: string }>)
-  return response.data.workflow?.spec ?? null
+export function getWorkflowSpec(workflowId: string): Promise<WorkflowSpec | null> {
+  return viaCache(`spec:${workflowId}`, async () => {
+    const response = await callFunction<{ workflow?: WorkflowDetailRow; error?: string }>(
+      `/admin-api/workflows/${workflowId}`,
+    )
+    if (response.status === 404) return null
+    assertOk(response as unknown as FunctionResponse<{ error?: string }>)
+    return response.data.workflow?.spec ?? null
+  })
 }
 
 export async function createWorkflow(
@@ -70,6 +76,7 @@ export async function createWorkflow(
       },
     }),
   )
+  invalidateReads()
   return toSummary(workflow)
 }
 
@@ -80,12 +87,14 @@ export async function renameWorkflow(workflowId: string, name: string): Promise<
       body: { name },
     }),
   )
+  invalidateReads()
 }
 
 export async function deleteWorkflow(workflowId: string): Promise<void> {
   withData(
     await callFunction(`/admin-api/workflows/${workflowId}`, { method: 'DELETE' }),
   )
+  invalidateReads()
 }
 
 /** Update the workflow description in both the summary and the stored spec. */
@@ -99,6 +108,7 @@ export async function updateWorkflowDescription(
       body: { description },
     }),
   )
+  invalidateReads()
 }
 
 /** Publish: stores a validated spec against the workflow and bumps version. */
@@ -109,4 +119,5 @@ export async function saveWorkflowSpec(workflowId: string, spec: WorkflowSpec): 
       body: { spec },
     }),
   )
+  invalidateReads()
 }
