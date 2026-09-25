@@ -22,12 +22,16 @@
 //   PATCH  /workflows/:id {name?, description?}   also patches the stored spec
 //   PUT    /workflows/:id/spec {spec}             publish: bump version
 //   DELETE /workflows/:id
-//   GET    /usage/totals                org-wide session/decision totals
+//   GET    /usage/totals                org-wide totals (derived from decisions)
 //   GET    /usage/snapshot?client_id=&period=
+// Phase 6 additions (client sessions may read their own rows):
+//   GET    /sessions?workflow_id=&kind=         run/builder sessions (client: own)
+//   GET    /sessions/:id/decisions?limit=       the decision ledger for one session
+//   GET    /artifacts?session_id=               session artifacts
 
 import { handleOptions, jsonResponse } from '../_shared/cors.ts'
 import { readSession } from '../_shared/jwt.ts'
-import { restCount, restDelete, restInsert, restSelect, restUpdate } from '../_shared/rest.ts'
+import { restDelete, restInsert, restSelect, restUpdate } from '../_shared/rest.ts'
 
 interface WorkflowRow {
   id: string
@@ -242,34 +246,130 @@ Deno.serve(async (request) => {
     }
 
     // ------------------------------------------------------------------
-    // Usage (admin only) — computed from sessions/decisions; no usage table.
+    // Sessions (client: own only; admin: any) + the decision ledger.
+    // ------------------------------------------------------------------
+    if (resource === 'sessions') {
+      const ownClient = isAdmin ? null : (session.client_id ?? null)
+      if (!isAdmin && ownClient === null) return jsonResponse(request, { sessions: [] })
+
+      if (request.method === 'GET' && !id) {
+        const params: Record<string, string> = {
+          select: 'id,client_id,workflow_id,kind,started_at,last_seen_at',
+          order: 'started_at.desc',
+        }
+        if (ownClient !== null) params.client_id = `eq.${ownClient}`
+        const workflowId = url.searchParams.get('workflow_id')
+        if (workflowId && isUuid(workflowId)) params.workflow_id = `eq.${workflowId}`
+        const kind = url.searchParams.get('kind')
+        if (kind === 'run' || kind === 'builder') params.kind = `eq.${kind}`
+        const rows = await restSelect<Record<string, unknown>>('sessions', params)
+        return jsonResponse(request, { sessions: rows })
+      }
+
+      if (request.method === 'GET' && id && isUuid(id) && sub === 'decisions') {
+        // Scope: the session must belong to this client (or be admin).
+        const sessionParams: Record<string, string> = { id: `eq.${id}`, select: 'id,client_id' }
+        if (ownClient !== null) sessionParams.client_id = `eq.${ownClient}`
+        const owned = await restSelect<{ id: string }>('sessions', sessionParams)
+        if (owned.length === 0) return jsonResponse(request, { error: 'Not found' }, 404)
+        const limitParam = Number(url.searchParams.get('limit') ?? '')
+        const params: Record<string, string> = {
+          session_id: `eq.${id}`,
+          select: 'id,session_id,workflow_id,judge_id,question,answer,confidence,probabilities,latency_ms,created_at',
+          order: 'created_at.desc',
+        }
+        if (Number.isFinite(limitParam) && limitParam > 0) params.limit = String(Math.floor(limitParam))
+        const rows = await restSelect<Record<string, unknown>>('decisions', params)
+        return jsonResponse(request, { decisions: rows })
+      }
+
+      if (request.method === 'GET' && id && isUuid(id) && sub === 'messages') {
+        const sessionParams: Record<string, string> = { id: `eq.${id}`, select: 'id,client_id' }
+        if (ownClient !== null) sessionParams.client_id = `eq.${ownClient}`
+        const owned = await restSelect<{ id: string }>('sessions', sessionParams)
+        if (owned.length === 0) return jsonResponse(request, { error: 'Not found' }, 404)
+        const rows = await restSelect<Record<string, unknown>>('messages', {
+          session_id: `eq.${id}`,
+          select: 'id,session_id,role,content,created_at',
+          order: 'created_at.asc',
+        })
+        return jsonResponse(request, { messages: rows })
+      }
+
+      return jsonResponse(request, { error: 'Unsupported session operation' }, 405)
+    }
+
+    // ------------------------------------------------------------------
+    // Artifacts (client: own sessions only; admin: any).
+    // ------------------------------------------------------------------
+    if (resource === 'artifacts' && request.method === 'GET') {
+      const requestedSession = url.searchParams.get('session_id')
+      if (!requestedSession || !isUuid(requestedSession)) {
+        return jsonResponse(request, { error: 'session_id is required' }, 400)
+      }
+      if (!isAdmin) {
+        const owned = await restSelect<{ id: string }>('sessions', {
+          id: `eq.${requestedSession}`,
+          client_id: `eq.${session.client_id}`,
+          select: 'id',
+          limit: '1',
+        })
+        if (owned.length === 0) return jsonResponse(request, { error: 'Not found' }, 404)
+      }
+      const rows = await restSelect<Record<string, unknown>>('artifacts', {
+        session_id: `eq.${requestedSession}`,
+        select: 'id,session_id,storage_path,filename,mime_type,size,created_at',
+        order: 'created_at.asc',
+      })
+      return jsonResponse(request, { artifacts: rows })
+    }
+
+    // ------------------------------------------------------------------
+    // Usage — computed from the decisions ledger; every dashboard number
+    // traces to decisions rows, nothing else. Admins see org-wide totals;
+    // clients see their own (scoped via the owning session).
     // ------------------------------------------------------------------
     if (resource === 'usage') {
-      if (!isAdmin) return jsonResponse(request, { error: 'Forbidden' }, 403)
+      const ownClient = isAdmin ? null : (session.client_id ?? null)
+      if (!isAdmin && ownClient === null) {
+        return jsonResponse(request, { runsThisMonth: 0, decisionsMade: 0 })
+      }
 
       if (request.method === 'GET' && id === 'totals') {
-        const runsThisMonth = await restCount('sessions', {})
-        const decisionsMade = await restCount('decisions', {})
-        return jsonResponse(request, { runsThisMonth, decisionsMade })
+        const sessionParams: Record<string, string> = { select: 'id' }
+        if (ownClient !== null) sessionParams.client_id = `eq.${ownClient}`
+        const sessionRows = await restSelect<{ id: string }>('sessions', sessionParams)
+        const decisionsParams: Record<string, string> = { select: 'session_id' }
+        if (sessionRows.length > 0) {
+          decisionsParams.session_id = `in.(${sessionRows.map((row) => row.id).join(',')})`
+        } else if (ownClient !== null) {
+          return jsonResponse(request, { runsThisMonth: 0, decisionsMade: 0 })
+        }
+        const decisionSessions = await restSelect<{ session_id: string }>('decisions', decisionsParams)
+        const runsThisMonth = new Set(decisionSessions.map((row) => row.session_id)).size
+        return jsonResponse(request, { runsThisMonth, decisionsMade: decisionSessions.length })
       }
+
+      if (!isAdmin) return jsonResponse(request, { error: 'Forbidden' }, 403)
 
       if (request.method === 'GET' && id === 'snapshot') {
         const clientId = url.searchParams.get('client_id')
-        const sessionParams: Record<string, string> = {}
+        // Scope through the owning session (decisions carry no client_id).
+        const sessionParams: Record<string, string> = { select: 'id' }
         if (clientId && isUuid(clientId)) sessionParams.client_id = `eq.${clientId}`
-        const sessions = await restCount('sessions', sessionParams)
-        // decisions scope through their session (no client_id column).
+        const sessionRows = await restSelect<{ id: string }>('sessions', sessionParams)
         let judgeCalls = 0
-        if (sessions > 0) {
-          const sessionIds = await restSelect<{ id: string }>('sessions', {
-            ...(clientId && isUuid(clientId) ? { client_id: `eq.${clientId}` } : {}),
-            select: 'id',
+        const runSessionIds = new Set<string>()
+        if (sessionRows.length > 0) {
+          const decisionSessions = await restSelect<{ session_id: string }>('decisions', {
+            session_id: `in.(${sessionRows.map((row) => row.id).join(',')})`,
+            select: 'session_id',
           })
-          judgeCalls = await restCount('decisions', {
-            session_id: `in.(${sessionIds.map((row) => row.id).join(',')})`,
-          })
+          judgeCalls = decisionSessions.length
+          for (const row of decisionSessions) runSessionIds.add(row.session_id)
         }
-        return jsonResponse(request, { sessions, judge_calls: judgeCalls, tokens: 0 })
+        // Sessions counted as runs only when they produced decisions.
+        return jsonResponse(request, { sessions: runSessionIds.size, judge_calls: judgeCalls, tokens: 0 })
       }
 
       return jsonResponse(request, { error: 'Unsupported usage operation' }, 405)
