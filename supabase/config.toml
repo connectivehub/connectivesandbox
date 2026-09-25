@@ -424,3 +424,19 @@ verify_jwt = false
 
 [functions.admin-api]
 verify_jwt = false
+
+# Phase 6: all four new functions manage their own cookie auth (same design
+# as auth-code/admin-api); admin-chat validates specs against the frozen Zod
+# schema via an import map (zod resolves to npm:zod).
+[functions.run-workflow]
+verify_jwt = false
+
+[functions.admin-chat]
+verify_jwt = false
+import_map = "./functions/import_map.json"
+
+[functions.client-chat]
+verify_jwt = false
+
+[functions.artifact-api]
+verify_jwt = false
