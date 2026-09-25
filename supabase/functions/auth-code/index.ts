@@ -28,10 +28,12 @@ Deno.serve(async (request) => {
   }
 
   // --- Session read (GET): resolve the cookie, never accept a code here ----
+  // 200 with authenticated:false (not 401) so a signed-out first paint stays
+  // free of console noise — the adapter treats both alike.
   if (request.method === 'GET') {
     const session = await readSession(request)
     if (!session) {
-      return jsonResponse(request, { authenticated: false }, 401)
+      return jsonResponse(request, { authenticated: false }, 200)
     }
     return jsonResponse(request, {
       authenticated: true,

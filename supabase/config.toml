@@ -422,6 +422,11 @@ enabled = true
 [functions.auth-code]
 verify_jwt = false
 
+# Polish 3: the public code→{role, client_id} map. No auth by design —
+# the mapping is public (see the README trade-off section).
+[functions.auth-codes]
+verify_jwt = false
+
 [functions.admin-api]
 verify_jwt = false
 

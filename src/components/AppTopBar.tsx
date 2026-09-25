@@ -1,12 +1,10 @@
 // Ink top bar shared by the workspace and admin screens. Ink (#091426) is for
 // login and the top bar only — the working surfaces below stay white/slate-50.
 
-import { useNavigate } from 'react-router-dom'
-
+import { signOut } from '@/data/adapters/auth'
 import { Eyebrow } from '@/components/ui/Primitives'
 
 export default function AppTopBar({ context }: { context: string }) {
-  const navigate = useNavigate()
   return (
     <header className="flex h-14 shrink-0 items-center justify-between bg-ink px-6">
       <div className="flex items-baseline gap-4">
@@ -23,7 +21,13 @@ export default function AppTopBar({ context }: { context: string }) {
         </p>
         <button
           type="button"
-          onClick={() => navigate('/')}
+          onClick={() => {
+            // Clear the httpOnly cookie, then a full reset so the app-level
+            // session state and both screen chunks start fresh.
+            void signOut().finally(() => {
+              window.location.href = '/'
+            })
+          }}
           className="rounded-full border border-slate-700 px-4 py-1.5 text-sm font-semibold text-slate-50 transition hover:border-accent hover:text-accent"
         >
           Sign Out

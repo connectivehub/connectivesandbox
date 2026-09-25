@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState, Suspense } from 'react'
-import { lazy } from 'react'
+import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react'
 import { Delete } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
