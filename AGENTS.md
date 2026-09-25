@@ -130,6 +130,36 @@ dependencies beyond the standard scaffold set without a captain decision.
 - **Rotated secrets this phase:** `ADMIN_ACCESS_CODE` (no plaintext existed
   after Phase 5), and set `ZAI_API_KEY`. Secrets referenced by name only.
 
+## Polish 4 — chat behaviour & unified intake
+
+- **Everything is the chat window.** `IntakeSurface` renders exactly one chat
+  flow (Chat, mounted directly so the flow can carry the other intake
+  components as inline cards). `file_upload`/`form`/`button_group`/
+  `text_field` render as compact in-chat cards via `variant: 'inline'` on
+  `IntakeComponentViewProps` (registry.ts); panel variants remain for
+  compatibility. Spec component types are untouched (frozen types.ts).
+- **Inline card submissions are chat sends.** A card's `onSubmitted` posts a
+  summarised user message through the same send path (live: persist + run +
+  stream; preview: mock run + echo), then collapses to a compact sent chip.
+  Tray files carry `source` provenance: card-picked files are routed to their
+  intake component's slot at send time via `sendChatMessage`'s `filesBySlot`
+  so judge state keeps the spec's keying; composer files still ride the chat
+  slot. Drag-drop anywhere on the chat panel + paperclip + card button all
+  feed the ONE attachment tray.
+- **Chat behaviours (shared in `src/components/chat/`):** `useStickToBottom`
+  pins the transcript to the newest message on send/stream/history unless the
+  user scrolls up; `TypingBubble` (three CSS dots, static "…" under
+  `prefers-reduced-motion`) stands in until the first streamed token;
+  `Markdown` renders model replies via react-markdown (captain-approved
+  dependency #2) with no `rehype-raw`, so output is sanitised by construction
+  — styles live in its component map, never as chrome.
+- **Tick clipping.** Bubble content uses `break-words
+  [overflow-wrap:anywhere]` and the timestamp row `whitespace-nowrap`; the
+  bubble must never get `overflow-hidden` (it would clip the ::after tails).
+- **Registry chat entry caveat.** Chat is mounted directly by IntakeSurface,
+  so its registry entry is a cast; Vite notes the dynamic import is
+  ineffective for chunking — expected, keep the entry for registry coverage.
+
 ## Phase 7 — production cleanup
 
 - **Fixtures deleted.** `src/data/fixtures/` and `scripts/validate-fixtures.ts`
