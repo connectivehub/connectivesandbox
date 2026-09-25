@@ -58,3 +58,70 @@ export function assertOk(response: FunctionResponse<{ error?: string }>): void {
     )
   }
 }
+
+export interface StreamResult {
+  /** Final metadata event (the {done:true} payload), when it arrived. */
+  done: Record<string, unknown> | null
+  error?: string
+}
+
+/**
+ * POST an Edge Function and consume its SSE reply, invoking onDelta for each
+ * content chunk. Same-origin + credentials so the session cookie rides along
+ * (see the note on callFunction).
+ */
+export async function streamFunction(
+  path: string,
+  body: unknown,
+  onDelta: (delta: string) => void,
+): Promise<StreamResult> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'text/event-stream' }
+  if (ANON_KEY.length > 0) headers.apikey = ANON_KEY
+
+  const response = await fetch(`${FUNCTIONS_BASE}${path}`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`
+    try {
+      const data = (await response.json()) as { error?: string }
+      if (data.error !== undefined) message = data.error
+    } catch {
+      // Keep the default message.
+    }
+    throw new ApiError(message, response.status)
+  }
+  if (response.body === null) return { done: null }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let streamError: string | undefined
+  let donePayload: Record<string, unknown> | null = null
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('data:')) continue
+      const payload = trimmed.slice(5).trim()
+      if (payload === '[DONE]' || payload.length === 0) continue
+      try {
+        const parsed = JSON.parse(payload) as { delta?: string; done?: boolean; error?: string }
+        if (typeof parsed.delta === 'string') onDelta(parsed.delta)
+        if (parsed.done === true) donePayload = parsed as Record<string, unknown>
+        if (parsed.error !== undefined && parsed.done !== true) streamError = parsed.error
+      } catch {
+        // Skip malformed frames.
+      }
+    }
+  }
+  return { done: donePayload, ...(streamError !== undefined ? { error: streamError } : {}) }
+}

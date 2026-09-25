@@ -12,7 +12,7 @@ import { useWorkspace } from '@/state/workspace'
 export type AnalysisPanel = Extract<DashboardPanel, { type: 'analysis' }>
 
 export default function Analysis({ panel }: { panel: AnalysisPanel }) {
-  const { spec, results, runStatus } = useWorkspace()
+  const { spec, results, runStatus, analysis } = useWorkspace()
   const [expanded, setExpanded] = useState(false)
 
   if (runStatus === 'running') {
@@ -23,6 +23,17 @@ export default function Analysis({ panel }: { panel: AnalysisPanel }) {
         <Skeleton className="h-3 w-11/12" />
         <Skeleton className="h-3 w-4/5" />
         <Skeleton className="h-3 w-2/3" />
+      </div>
+    )
+  }
+
+  // LLM-sourced panels render the narration produced server-side by the
+  // run-workflow gateway alongside the decision ledger.
+  if (panel.source === 'llm' && analysis !== null && analysis.length > 0) {
+    return (
+      <div className="space-y-2">
+        <h3 className="font-semibold tracking-tight text-ink">{panel.title}</h3>
+        <p className="text-sm leading-relaxed text-slate-600">{analysis}</p>
       </div>
     )
   }

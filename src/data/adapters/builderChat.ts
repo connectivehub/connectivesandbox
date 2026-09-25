@@ -1,10 +1,35 @@
-// BACKEND: the builder LLM and its chat storage land in Phase 6. Until then
-// histories are fixtures keyed by `${clientId}:${workflowId}` so switching
-// workflows switches the conversation; a workflow with no seeded history
-// opens with the assistant greeting only.
+// Live builder chat (Phase 6). The workflow-builder LLM runs in the
+// admin-chat Edge Function: system prompt loads at request time from
+// agent_instructions, emitted specs are validated against the frozen Zod
+// schema server-side (with model self-correction), and the conversation
+// persists per client+workflow as real sessions/messages rows.
+//
+// The fixture-era signatures are kept: history keyed by
+// `${clientId}:${workflowId}`, BuilderChatMessage shape.
 
-import type { BuilderChatMessage } from '@/data/fixtures/builderChat'
-import { builderAckReply, builderConversation } from '@/data/fixtures/builderChat'
+import type { WorkflowSpec } from '@/engine/types'
+import { callFunction, streamFunction } from '@/data/api'
+
+export interface BuilderChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  /** Raw spec payload attached to assistant messages that propose a workflow. */
+  spec?: WorkflowSpec
+}
+
+interface SessionRow {
+  id: string
+  workflow_id: string
+  kind: string
+}
+
+interface MessageRow {
+  id: string
+  role: string
+  content: string
+  created_at: string
+}
 
 export function builderGreeting(): BuilderChatMessage {
   return {
@@ -14,24 +39,73 @@ export function builderGreeting(): BuilderChatMessage {
   }
 }
 
-const store: Record<string, BuilderChatMessage[]> = {
-  'clt_001:photo-to-quote-triage': builderConversation,
-  'clt_002:document-intake-review': [
-    builderGreeting(),
-    {
-      id: 'bc_101',
-      role: 'user',
-      content: 'Draft a workflow to classify claims documents and check the set is complete.',
-    },
-    { id: 'bc_102', role: 'assistant', content: builderAckReply },
-  ],
+function workflowIdFromKey(key: string): string {
+  const index = key.indexOf(':')
+  return index === -1 ? key : key.slice(index + 1)
+}
+
+async function findBuilderSession(workflowId: string): Promise<string | null> {
+  const { status, data } = await callFunction<{ sessions?: SessionRow[] }>(
+    `/admin-api/sessions?workflow_id=${encodeURIComponent(workflowId)}&kind=builder`,
+  )
+  if (status >= 400) return null
+  return data.sessions?.[0]?.id ?? null
 }
 
 export async function getBuilderHistory(key: string): Promise<BuilderChatMessage[]> {
-  return [...(store[key] ?? [builderGreeting()])]
+  const workflowId = workflowIdFromKey(key)
+  if (!/^[0-9a-f-]{36}$/i.test(workflowId)) return [builderGreeting()]
+  const sessionId = await findBuilderSession(workflowId)
+  if (sessionId === null) return [builderGreeting()]
+  const { status, data } = await callFunction<{ messages?: MessageRow[] }>(
+    `/admin-api/sessions/${sessionId}/messages`,
+  )
+  if (status >= 400) return [builderGreeting()]
+  const rows = (data.messages ?? []).filter(
+    (row) => row.role === 'user' || row.role === 'assistant',
+  )
+  if (rows.length === 0) return [builderGreeting()]
+  return rows.map((row) => ({
+    id: row.id,
+    role: row.role as 'user' | 'assistant',
+    content: row.content,
+  }))
 }
 
-export function appendBuilderMessage(key: string, message: BuilderChatMessage): void {
-  if (store[key] === undefined) store[key] = [builderGreeting()]
-  store[key].push(message)
+/** Server-side persistence replaced the local store — kept for signature parity. */
+export function appendBuilderMessage(_key: string, _message: BuilderChatMessage): void {
+  // The admin-chat Edge Function persists user + assistant messages.
+  void _key
+  void _message
+}
+
+export interface BuilderSendResult {
+  content: string
+  /** The validated spec, when the reply contained one. */
+  spec: WorkflowSpec | null
+  /** Why the emitted spec failed validation, when it could not be corrected. */
+  validationError: string | null
+}
+
+/** Stream one builder turn through the admin-chat gateway. */
+export async function sendBuilderMessage(
+  workflowId: string,
+  content: string,
+  onDelta: (delta: string) => void,
+): Promise<BuilderSendResult> {
+  let full = ''
+  const { done } = await streamFunction(
+    '/admin-chat',
+    { workflow_id: workflowId, message: content },
+    (delta) => {
+      full += delta
+      onDelta(delta)
+    },
+  )
+  const spec = (done?.spec ?? null) as WorkflowSpec | null
+  return {
+    content: full,
+    spec: spec !== null && typeof spec === 'object' ? spec : null,
+    validationError: typeof done?.validation_error === 'string' ? done.validation_error : null,
+  }
 }

@@ -136,7 +136,7 @@ export default function Workspace() {
           )}
 
           {spec !== null && selectedId !== null ? (
-            <WorkspaceProvider key={spec.name} workflowId={selectedId} spec={spec}>
+            <WorkspaceProvider key={spec.name} workflowId={selectedId} spec={spec} mode="live">
               <WorkspaceBody />
             </WorkspaceProvider>
           ) : (

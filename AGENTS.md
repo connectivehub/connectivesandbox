@@ -66,6 +66,62 @@ dependencies beyond the standard scaffold set without a captain decision.
 - **CORS** is an explicit allow-list (localhost dev ports + the
   `ALLOWED_ORIGINS` Edge secret); no wildcard with credentials.
 
+## Phase 6 — workflow execution decisions
+
+- **Judge providers live in `src/services/judge/`** (factory + `jev` (live,
+  Codiv openjev via /v1/systemone), `laya_modal`/`laya_space` (implemented per
+  the Laya contract, UNTESTED — no live endpoint), `mock`). Providers take
+  plain config objects; only the Edge Functions resolve credentials from
+  secrets. All judges in a workflow are batched into ONE provider request;
+  state budget is 512 tokens/question enforced by a deterministic compressor
+  (`compress.ts`, event logged). Any unparseable answer throws
+  `JudgeParseError` → `run-workflow` writes confidence-0 `decisions` rows
+  carrying the raw response and surfaces the failure in the UI. There is NO
+  code path that substitutes an LLM judgement for a judge.
+- **Deno import discipline.** Deno requires explicit `.ts` extensions on
+  value imports; relative value imports in `src/services/**` carry them
+  (type-only imports may stay extensionless — they are erased). Edge Functions
+  import the pure engine (`src/engine/schema.ts`, `runner.ts`) directly.
+- **admin-chat import map.** `supabase/functions/import_map.json` maps
+  `zod` → `npm:zod` so the Edge Function can validate specs against the one
+  frozen Zod schema; wired via `[functions.admin-chat] import_map` in
+  config.toml. The validation/self-correction loop runs server-side (max 3
+  rounds); the spec is only returned once it validates, else the validation
+  error is surfaced.
+- **GLM parameters (verified against current Z.ai docs).** Endpoint
+  `https://api.z.ai/api/paas/v4/chat/completions`; model `glm-5.3-flash`,
+  temperature 1, top_p 0.95, `thinking: {type: 'enabled'}` +
+  `reasoning_effort` (GLM-5.3 series accepts low/high/max).
+  **DEVIATION from brief:** `reasoning_effort: 'max'` makes a single builder
+  turn think for ~150s (measured live), which kills the hosted Edge Function
+  (wall-clock limit → WORKER_RESOURCE_LIMIT). Default is 'high' (same turn
+  ~58s, full content); override with the `GLM_REASONING_EFFORT` secret.
+  `max_tokens` is generous (16384 default) — with reasoning on, small budgets
+  are consumed by thinking before any content is emitted.
+- **Edge Function wall-clock budget.** admin-chat does its validation loop
+  internally then streams the final reply as SSE (`{delta}` chunks, a
+  `{done:true}` metadata event, `data: [DONE]`); client-chat relays GLM's SSE
+  after filtering reasoning frames. Persist assistant messages BEFORE closing
+  the stream — post-close work races isolate recycling (bug hit in e2e).
+- **Builder chat persistence.** One `sessions` row with `kind='builder'` per
+  workflow (migration 20250201…); the per-workflow admin chat history is real
+  `messages` rows. Run sessions use `kind='run'`.
+- **Decision ledger is the only dashboard source.** `run-workflow` writes one
+  `decisions` row per judge (always, with latency_ms). Client workspace runs
+  call the Edge Function; the admin live preview stays on the local fixture
+  provider (never consumes judge calls or writes ledger rows — the only
+  sanctioned exception). Monitoring tiles are computed from decisions rows;
+  unknown metric names fall back to the decision count. Usage totals derive
+  from decisions (runs = sessions with ≥1 decision row); `usage/totals` is
+  readable by clients scoped to their own rows.
+- **Storage flow.** `artifact-api` verifies the client JWT, checks session
+  ownership, then issues a signed upload URL (path `{client_id}/{session_id}/
+  {artifact_id}-{filename}`, artifact row written at sign time). Client PUTs
+  the raw body; downloads use short-lived signed URLs (client chat attaches
+  them as `image_url` blocks — never base64).
+- **Rotated secrets this phase:** `ADMIN_ACCESS_CODE` (no plaintext existed
+  after Phase 5), and set `ZAI_API_KEY`. Secrets referenced by name only.
+
 ## Brand
 
 Connective Labs: single accent `#FF6B35`, ink `#091426`, Tailwind **slate**

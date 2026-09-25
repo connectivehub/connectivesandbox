@@ -5,6 +5,8 @@
 // framer-motion; the surface stays mounted so intake state (chat transcript,
 // attachments) never resets. Chat-first specs render viewport-locked: no
 // inner scroll on the surface, the chat's message list scrolls instead.
+// Decision-ledger failures (confidence-0 rows written by run-workflow) are
+// surfaced here — never silently swallowed.
 
 import { AnimatePresence, motion } from 'framer-motion'
 
@@ -17,11 +19,20 @@ import { useWorkspace } from '@/state/workspace'
 const SWITCH_TRANSITION = { duration: 0.18, ease: 'easeOut' as const }
 
 export default function WorkspaceBody() {
-  const { spec, dashboardExpanded } = useWorkspace()
+  const { spec, dashboardExpanded, runError } = useWorkspace()
   const chatLocked = spec.intake.components.some((component) => component.type === 'chat')
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {runError !== null && (
+        <div
+          role="alert"
+          className="shrink-0 border-b border-red-100 bg-red-50 px-4 py-2 text-xs text-red-700"
+        >
+          <span className="font-semibold">Judge failure —</span> {runError} The run was recorded in
+          the decision ledger with 0% confidence; nothing was silently substituted.
+        </div>
+      )}
       <AnimatePresence mode="wait" initial={false}>
         {!dashboardExpanded && (
           <motion.div

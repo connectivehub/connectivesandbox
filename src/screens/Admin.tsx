@@ -30,8 +30,11 @@ import {
   saveWorkflowSpec,
   updateWorkflowDescription,
 } from '@/data/adapters/workflows'
-import { appendBuilderMessage, getBuilderHistory } from '@/data/adapters/builderChat'
-import { builderAckReply, type BuilderChatMessage } from '@/data/fixtures/builderChat'
+import {
+  getBuilderHistory,
+  sendBuilderMessage,
+  type BuilderChatMessage,
+} from '@/data/adapters/builderChat'
 import type { Client, WorkflowSummary } from '@/data/types'
 import { WorkspaceProvider } from '@/state/workspace'
 import { cn } from '@/lib/utils'
@@ -416,7 +419,7 @@ export default function Admin() {
 
   const sendChat = () => {
     const content = draft.trim()
-    if (content.length === 0 || chatPending || chatKey === null) return
+    if (content.length === 0 || chatPending || chatKey === null || selectedWorkflowId === null) return
     setDraft('')
     const userMessage: BuilderChatMessage = {
       id: `bc_${Date.now()}`,
@@ -424,18 +427,58 @@ export default function Admin() {
       content,
     }
     setMessages((previous) => [...previous, userMessage])
-    appendBuilderMessage(chatKey, userMessage)
     setChatPending(true)
-    window.setTimeout(() => {
-      setChatPending(false)
-      const ack: BuilderChatMessage = {
-        id: `bc_${Date.now()}_ack`,
+    void (async () => {
+      // Streamed reply from the admin-chat gateway (GLM-5.3-Flash, spec
+      // validated server-side against the frozen Zod schema).
+      const assistantMessage: BuilderChatMessage = {
+        id: `bc_${Date.now()}_assistant`,
         role: 'assistant',
-        content: builderAckReply,
+        content: '',
       }
-      setMessages((previous) => [...previous, ack])
-      appendBuilderMessage(chatKey, ack)
-    }, 900)
+      setMessages((previous) => [...previous, assistantMessage])
+      let streamed = ''
+      try {
+        const result = await sendBuilderMessage(selectedWorkflowId, content, (delta) => {
+          streamed += delta
+          setMessages((previous) =>
+            previous.map((message) =>
+              message.id === assistantMessage.id ? { ...message, content: streamed } : message,
+            ),
+          )
+        })
+        setMessages((previous) =>
+          previous.map((message) =>
+            message.id === assistantMessage.id
+              ? {
+                  ...message,
+                  content: result.content,
+                  ...(result.spec !== null ? { spec: result.spec } : {}),
+                  ...(result.validationError !== null
+                    ? { content: `${result.content}\n\n⚠️ Spec validation: ${result.validationError}` }
+                    : {}),
+                }
+              : message,
+          ),
+        )
+      } catch (error) {
+        setMessages((previous) =>
+          previous.map((message) =>
+            message.id === assistantMessage.id
+              ? {
+                  ...message,
+                  content:
+                    streamed.length > 0
+                      ? `${streamed}\n\n⚠️ ${(error as Error).message}`
+                      : `⚠️ ${(error as Error).message}`,
+                }
+              : message,
+          ),
+        )
+      } finally {
+        setChatPending(false)
+      }
+    })()
   }
 
   const publish = async () => {

@@ -1,7 +1,7 @@
 // Registry entry for dashboard panel type "usage_counter": runs this month,
-// decisions made, estimated minutes saved. Baseline totals come from the
-// clients adapter (fixtures); live totals accrue from local judge runs.
-// BACKEND: aggregates over the sessions and decisions tables in Phase 4.
+// decisions made, estimated minutes saved. Every number traces to the
+// decision ledger: the org totals are computed from `decisions` rows by the
+// admin-api gateway, and local live runs add this session's decisions rows.
 
 import { useEffect, useState } from 'react'
 
@@ -17,7 +17,7 @@ export type UsageCounterPanel = Extract<DashboardPanel, { type: 'usage_counter' 
 const MINUTES_SAVED_PER_DECISION = 6
 
 export default function UsageCounter({ panel }: { panel: UsageCounterPanel }) {
-  const { decisions, runCount } = useWorkspace()
+  const { decisions, runCount, mode } = useWorkspace()
   const [totals, setTotals] = useState<OrgUsageTotals | null>(null)
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export default function UsageCounter({ panel }: { panel: UsageCounterPanel }) {
     return () => {
       active = false
     }
-  }, [])
+  }, [runCount])
 
   if (!totals) {
     return (
@@ -43,9 +43,13 @@ export default function UsageCounter({ panel }: { panel: UsageCounterPanel }) {
     )
   }
 
-  const decisionsMade = totals.decisionsMade + decisions.length
+  // Only live runs add on top of the ledger totals (preview runs are local
+  // fixtures and never write decisions rows).
+  const liveDecisions = mode === 'live' ? decisions.length : 0
+  const liveRuns = mode === 'live' ? runCount : 0
+  const decisionsMade = totals.decisionsMade + liveDecisions
   const stats = [
-    { label: 'Runs this month', value: formatCount(totals.runsThisMonth + runCount) },
+    { label: 'Runs this month', value: formatCount(totals.runsThisMonth + liveRuns) },
     { label: 'Decisions made', value: formatCount(decisionsMade) },
     {
       label: 'Est. minutes saved',

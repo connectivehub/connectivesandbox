@@ -3,9 +3,11 @@
 // pinned composer. Files can be dragged anywhere onto the panel or attached
 // via the clip control; they wait as preview chips and travel with the sent
 // message — object URLs live as long as the message renders, with a filename
-// chip fallback when a thumbnail cannot. The assistant reply is a fixture
-// echo — BACKEND: assistant replies come from the chat edge function from
-// Phase 4.
+// chip fallback when a thumbnail cannot.
+// Two modes (from the workspace context): 'preview' keeps the fixture echo,
+// 'live' streams the GLM reply from the client-chat Edge Function — sending
+// the message uploads the attachments to storage and triggers the batched
+// judge run, so submitting the intake IS the run.
 
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -16,6 +18,7 @@ import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/format'
 import { Card } from '@/components/ui/Primitives'
 import { useWorkspace } from '@/state/workspace'
+import { getHistory } from '@/data/adapters/chat'
 
 export type ChatComponent = Extract<IntakeComponent, { type: 'chat' }>
 
@@ -24,6 +27,7 @@ interface ChatAttachment {
   name: string
   size: number
   url: string | null
+  file: File
 }
 
 interface SentAttachment {
@@ -77,7 +81,7 @@ function AttachmentThumb({
 }
 
 export default function Chat({ component }: { component: ChatComponent }) {
-  const { runStatus, run } = useWorkspace()
+  const { runStatus, run, mode, sendChatMessage, chatBusy, sessionId } = useWorkspace()
   const [messages, setMessages] = useState<ChatEntry[]>([
     { id: 'opening', role: 'assistant', content: component.opening_message },
   ])
@@ -89,7 +93,27 @@ export default function Chat({ component }: { component: ChatComponent }) {
   const dragDepth = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const disabled = runStatus === 'running' || pending
+  const disabled = runStatus === 'running' || pending || chatBusy
+  // Loaded-once guard: server history merges in when a session exists.
+  const loadedSessionRef = useRef<string | null>(null)
+
+  // Live mode: pull the persisted conversation for this session (real
+  // `messages` rows) once the session is known.
+  useEffect(() => {
+    if (mode !== 'live' || sessionId === null || loadedSessionRef.current === sessionId) return
+    loadedSessionRef.current = sessionId
+    void getHistory(sessionId).then((history) => {
+      if (history.length === 0) return
+      setMessages((previous) => [
+        ...previous,
+        ...history.map((entry) => ({
+          id: entry.id,
+          role: entry.role,
+          content: entry.content,
+        })),
+      ])
+    })
+  }, [mode, sessionId])
 
   // Type out the fixture reply character by character, cursor at the end.
   useEffect(() => {
@@ -121,6 +145,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
       name: file.name,
       size: file.size,
       url: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+      file,
     }))
     setAttachments((previous) => [...previous, ...next])
   }
@@ -148,13 +173,46 @@ export default function Chat({ component }: { component: ChatComponent }) {
     setDraft('')
     // Object URLs stay alive for the rendered message — never revoked on send.
     const sent: SentAttachment[] = attachments.map(({ id, name, url }) => ({ id, name, url }))
+    const rawFiles = attachments.map(({ file }) => file)
     setAttachments([])
-    const replyId = `msg_${Date.now()}_reply`
     setMessages((previous) => [
       ...previous,
       { id: `msg_${Date.now()}`, role: 'user', content, attachments: sent.length > 0 ? sent : undefined },
-      { id: replyId, role: 'assistant', content: '' },
     ])
+
+    if (mode === 'live') {
+      // Submitting the intake IS the run: sendChatMessage uploads the
+      // attachments through signed URLs, fires the batched judge call, then
+      // streams the GLM reply from the client-chat gateway.
+      const replyId = `msg_${Date.now()}_reply`
+      setMessages((previous) => [...previous, { id: replyId, role: 'assistant', content: '' }])
+      setPending(true)
+      let streamed = ''
+      void sendChatMessage(content, rawFiles, (delta) => {
+        streamed += delta
+        setMessages((previous) =>
+          previous.map((message) =>
+            message.id === replyId ? { ...message, content: streamed } : message,
+          ),
+        )
+      })
+        .catch((error: unknown) => {
+          const note = `⚠️ ${(error instanceof Error ? error.message : 'Chat failed')}`
+          setMessages((previous) =>
+            previous.map((message) =>
+              message.id === replyId
+                ? { ...message, content: streamed.length > 0 ? `${streamed}\n\n${note}` : note }
+                : message,
+            ),
+          )
+        })
+        .finally(() => setPending(false))
+      return
+    }
+
+    // Preview: fixture echo.
+    const replyId = `msg_${Date.now()}_reply`
+    setMessages((previous) => [...previous, { id: replyId, role: 'assistant', content: '' }])
     setPending(true)
     // Submitting the intake IS the run — the message (with attachments)
     // triggers the judgment pass; results populate the dashboard/banner.
