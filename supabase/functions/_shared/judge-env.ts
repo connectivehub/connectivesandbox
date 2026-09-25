@@ -12,8 +12,8 @@ export interface JudgeEnv {
 
 /**
  * Resolve the judge provider from the environment. Defaults to jev (the live
- * Phase 6 provider) and falls back to mock when credentials are absent so a
- * misconfigured secret surfaces as deterministic fixture answers rather than
+ * provider) and falls back to mock when credentials are absent so a
+ * misconfigured secret surfaces as deterministic mock answers rather than
  * a crashed workflow run.
  */
 export function judgeProviderFromEnv(): { provider: JudgeEnv | null; error?: string } {

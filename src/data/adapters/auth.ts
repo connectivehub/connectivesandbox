@@ -1,7 +1,7 @@
-// Real auth adapter (Phase 5). Codes are validated EXCLUSIVELY server-side by
+// Real auth adapter. Codes are validated EXCLUSIVELY server-side by
 // the `auth-code` Edge Function: the browser never sees a code list, a session
 // JWT arrives in an httpOnly cookie, and session state is read from that
-// cookie. Same signatures as the Phase 1–3 fixture adapter.
+// cookie.
 
 import type { AuthSession, User } from '@/data/types'
 import { ApiError, callFunction } from '@/data/api'

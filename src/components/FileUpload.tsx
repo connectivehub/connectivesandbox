@@ -1,7 +1,7 @@
 // Registry entry for intake component type "file_upload": drag-and-drop zone,
 // file chips with name/size/thumbnail and remove control, spec instructions
 // inline. Files land in the workspace intake state; upload progress is a
-// short fixture simulation.
+// short local progress simulation while the real upload happens on send.
 
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { FileText, Upload, X } from 'lucide-react'

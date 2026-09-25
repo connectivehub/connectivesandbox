@@ -20,9 +20,8 @@ dependencies beyond the standard scaffold set without a captain decision.
    or any network library — ever. It contains only types, schema, registry,
    runner. The runner receives a `JudgeProvider` by injection.
 3. **All data access goes through `src/data/adapters/`.** Components never
-   call Supabase directly. In Phases 1–3 adapters return fixtures (each starts
-   with a `// BACKEND:` comment naming what replaces its body); from Phase 4
-   the same functions, same signatures, hit the real backend.
+   call Supabase directly. Adapters hit the real backend exclusively — the
+   Phase 1–3 fixtures were deleted in Phase 7 and nothing imports them.
 4. **`src/engine/types.ts` is FROZEN.** Written verbatim in phase 1; never
    edit it in any later phase.
 5. **No secret, model key, or `service_role` key ever reaches the browser.**
@@ -33,8 +32,6 @@ dependencies beyond the standard scaffold set without a captain decision.
 ## Commands
 
 - `npm run build` — type-check + production build (must stay green)
-- `npm run validate:spec` — validates fixtures against the schema and rejects
-  malformed specs
 - `npm run dev` / `npm run preview` / `npm run lint`
 
 ## Phase 5 — auth & gateway decisions
@@ -121,6 +118,20 @@ dependencies beyond the standard scaffold set without a captain decision.
   them as `image_url` blocks — never base64).
 - **Rotated secrets this phase:** `ADMIN_ACCESS_CODE` (no plaintext existed
   after Phase 5), and set `ZAI_API_KEY`. Secrets referenced by name only.
+
+## Phase 7 — production cleanup
+
+- **Fixtures deleted.** `src/data/fixtures/` and `scripts/validate-fixtures.ts`
+  are gone (so is the `validate:spec` script). Zero imports remain — the admin
+  live preview now uses `mockJudgeProvider` from `src/services/judge/mock.ts`,
+  which is behaviourally identical (same canned answers, deterministic
+  fallbacks) and is the sanctioned test provider. Preview runs still never
+  consume judge calls or write ledger rows.
+- **`ADMIN_ACCESS_CODE` rotated this phase.** The Phase 6 value existed
+  nowhere retrievable (never recorded in plaintext after `supabase secrets
+  set`), so it was rotated. The current value lives in the firstmate config
+  store (`/home/macbooklee/firstmate/config/connectivesandbox-admin.env`);
+  reference it by NAME only, never print it.
 
 ## Brand
 

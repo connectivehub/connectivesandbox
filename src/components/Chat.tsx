@@ -4,8 +4,8 @@
 // via the clip control; they wait as preview chips and travel with the sent
 // message — object URLs live as long as the message renders, with a filename
 // chip fallback when a thumbnail cannot.
-// Two modes (from the workspace context): 'preview' keeps the fixture echo,
-// 'live' streams the GLM reply from the client-chat Edge Function — sending
+// Two modes (from the workspace context): 'preview' keeps the local echo
+// reply, 'live' streams the GLM reply from the client-chat Edge Function — sending
 // the message uploads the attachments to storage and triggers the batched
 // judge run, so submitting the intake IS the run.
 
@@ -43,7 +43,7 @@ interface ChatEntry {
   attachments?: SentAttachment[]
 }
 
-const FIXTURE_REPLY = 'Noted — added to the job details.'
+const PREVIEW_REPLY = 'Noted — added to the job details.'
 
 const CHIP_TRANSITION = { duration: 0.16, ease: 'easeOut' as const }
 
@@ -115,7 +115,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
     })
   }, [mode, sessionId])
 
-  // Type out the fixture reply character by character, cursor at the end.
+  // Type out the preview reply character by character, cursor at the end.
   useEffect(() => {
     if (!typing) return
     let index = 0
@@ -210,7 +210,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
       return
     }
 
-    // Preview: fixture echo.
+    // Preview: local echo reply (the run itself goes through the engine).
     const replyId = `msg_${Date.now()}_reply`
     setMessages((previous) => [...previous, { id: replyId, role: 'assistant', content: '' }])
     setPending(true)
@@ -219,7 +219,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
     run()
     window.setTimeout(() => {
       setPending(false)
-      setTyping({ messageId: replyId, full: FIXTURE_REPLY })
+      setTyping({ messageId: replyId, full: PREVIEW_REPLY })
     }, 900)
   }
 

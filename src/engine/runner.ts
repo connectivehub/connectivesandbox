@@ -1,7 +1,7 @@
 // Pure runner: turns intake state + a validated WorkflowSpec into judge
 // results via an injected JudgeProvider. No model logic here and no imports
-// from src/data/ — the provider is passed in by the caller (in Phase 4 the
-// data layer supplies a real provider; fixtures supply one for now).
+// from src/data/ — the provider is passed in by the caller (Edge Functions
+// supply the live provider; the admin preview supplies the mock).
 
 import type { JudgeAnswer, JudgeProvider, JudgeQuestion, WorkflowSpec } from './types'
 

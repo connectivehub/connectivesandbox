@@ -1,8 +1,7 @@
-// Real workflows adapter (Phase 5). Admin CRUD rides the `admin-api` Edge
+// Real workflows adapter. Admin CRUD rides the `admin-api` Edge
 // Function gateway; for a logged-in client the gateway scopes reads to that
 // client's rows (mirroring the RLS policies). Specs stored in the database
 // are validated client-side against src/engine/schema.ts before publishing.
-// Same signatures as the Phase 1–3 fixture adapter.
 
 import type { WorkflowSpec } from '@/engine/types'
 import type { WorkflowSummary } from '@/data/types'

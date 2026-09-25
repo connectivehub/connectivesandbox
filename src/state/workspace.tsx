@@ -6,8 +6,10 @@
 //               batches all judges into ONE provider call and writes the
 //               decision ledger; every dashboard number traces to those
 //               `decisions` rows returned from the server.
-//               'preview' — the admin live preview. Runs stay local on the
-//               deterministic fixture provider so building a spec never
+//               every dashboard number traces to those `decisions` rows
+//               returned from the server.
+//   'preview' — the admin live preview. Runs stay local on the
+//               deterministic mock provider so building a spec never
 //               consumes judge calls or writes ledger rows.
 
 import {
@@ -211,7 +213,7 @@ export function WorkspaceProvider({
   const run = useCallback(() => {
     if (runningRef.current) return
     if (mode === 'preview') {
-      // Preview: local fixture run, no network, no ledger writes.
+      // Preview: local mock run, no network, no ledger writes.
       runningRef.current = true
       setRunStatus('running')
       void (async () => {

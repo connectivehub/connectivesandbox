@@ -1,8 +1,7 @@
-// Live client-session chat (Phase 6). Messages persist as real rows in the
+// Live client-session chat. Messages persist as real rows in the
 // `messages` table under the session; the assistant reply streams from the
 // client-chat Edge Function (GLM-5.3-Flash, scoped to ONE workflow, with the
-// session's judge results in context). Same function signatures as the
-// Phase 1–3 fixture adapter.
+// session's judge results in context).
 
 import type { ChatMessage } from '@/data/types'
 import { callFunction, streamFunction } from '@/data/api'

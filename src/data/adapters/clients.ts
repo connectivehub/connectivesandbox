@@ -1,8 +1,9 @@
-// Real clients adapter (Phase 5). Admin CRUD rides the `admin-api` Edge
+// Real clients adapter. Admin CRUD rides the `admin-api` Edge
 // Function gateway (admin cookie verified server-side, service_role applied
-// inside the function — never in the browser). Same signatures as the
-// Phase 1–3 fixture adapter; slug is derived from the name since the clients
-// table has no slug column.
+// inside the function — never in the browser). Client access codes are
+// stored in plaintext by design (an admin must be able to read a code out
+// over WhatsApp); slug is derived from the name since the clients table has
+// no slug column.
 
 import type { Client, UsageSnapshot } from '@/data/types'
 import { assertOk, callFunction, type FunctionResponse } from '@/data/api'

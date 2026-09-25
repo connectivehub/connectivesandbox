@@ -35,15 +35,3 @@ export function formatCountCompact(value: number): string {
   if (value >= 1000) return `${(value / 1000).toFixed(1).replace(/\.0$/, '')}k`
   return String(value)
 }
-
-/** Deterministic pseudo-random series for fixture sparklines. */
-export function trendFromSeed(seed: string, points = 12): number[] {
-  let state = 0
-  for (const char of seed) state = (state * 31 + char.charCodeAt(0)) % 997
-  const series: number[] = []
-  for (let index = 0; index < points; index += 1) {
-    state = (state * 137 + 71) % 997
-    series.push(20 + (state % 80))
-  }
-  return series
-}

@@ -1,6 +1,6 @@
 // Registry entry for dashboard panel type "analysis": titled prose block with
-// loading skeleton. On fixtures the prose is assembled from the latest judge
-// run; BACKEND: LLM-generated analysis from Phase 4.
+// loading skeleton. The prose is the GLM-generated analysis returned by
+// run-workflow; preview runs assemble it locally from the mock judge results.
 
 import { useState } from 'react'
 

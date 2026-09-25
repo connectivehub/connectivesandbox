@@ -1,20 +1,20 @@
-// Live judge execution (Phase 6). The browser NEVER talks to a judge
+// Live judge execution. The browser NEVER talks to a judge
 // provider directly — no judge credential may reach the client (invariant 5).
 // `runWorkflow` calls the run-workflow Edge Function, which batches every
 // judge into ONE provider call and writes the decision ledger. The admin
-// live preview keeps the fixture provider (local, deterministic) so building
-// a spec never consumes judge calls.
+// live preview keeps a local provider (the deterministic mock from
+// src/services/judge, no network) so building a spec never consumes judge
+// calls.
 
 import type { JudgeAnswer, JudgeProvider } from '@/engine/types'
-import { fixtureJudgeProvider } from '@/data/fixtures/judge'
+import { mockJudgeProvider } from '@/services/judge/mock'
 import { callFunction, type FunctionResponse } from '@/data/api'
 
 export type { JudgeProvider }
-export { fixtureJudgeProvider }
 
-/** Provider for the admin live preview: deterministic fixtures, no network. */
+/** Provider for the admin live preview: deterministic mock, no network. */
 export function getPreviewJudgeProvider(): JudgeProvider {
-  return fixtureJudgeProvider
+  return mockJudgeProvider
 }
 
 export interface RunWorkflowResponse {

@@ -1,7 +1,7 @@
-// Mock provider — deterministic fixture answers for tests and the admin live
-// preview. Same behaviour as the Phase 1–3 fixture provider: canned answers
-// for the known fixture judges, deterministic fallbacks (never free text) for
-// unknown ids, with a full probability distribution over the options.
+// Mock provider — deterministic answers for tests and the admin live
+// preview. Canned answers for the known seed judges, deterministic fallbacks
+// (never free text) for unknown ids, always with a full probability
+// distribution over the options.
 
 import type { JudgeAnswer, JudgeProvider, JudgeQuestion } from '@/engine/types'
 

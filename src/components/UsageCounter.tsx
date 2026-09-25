@@ -13,7 +13,7 @@ import { useWorkspace } from '@/state/workspace'
 
 export type UsageCounterPanel = Extract<DashboardPanel, { type: 'usage_counter' }>
 
-// Fixture assumption until session durations exist in the backend.
+// Product assumption: six minutes of manual work per judged decision.
 const MINUTES_SAVED_PER_DECISION = 6
 
 export default function UsageCounter({ panel }: { panel: UsageCounterPanel }) {
@@ -44,7 +44,7 @@ export default function UsageCounter({ panel }: { panel: UsageCounterPanel }) {
   }
 
   // Only live runs add on top of the ledger totals (preview runs are local
-  // fixtures and never write decisions rows).
+  // mock runs and never write decisions rows).
   const liveDecisions = mode === 'live' ? decisions.length : 0
   const liveRuns = mode === 'live' ? runCount : 0
   const decisionsMade = totals.decisionsMade + liveDecisions

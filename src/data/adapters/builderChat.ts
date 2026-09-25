@@ -4,7 +4,7 @@
 // schema server-side (with model self-correction), and the conversation
 // persists per client+workflow as real sessions/messages rows.
 //
-// The fixture-era signatures are kept: history keyed by
+// The original adapter signatures are kept: history keyed by
 // `${clientId}:${workflowId}`, BuilderChatMessage shape.
 
 import type { WorkflowSpec } from '@/engine/types'

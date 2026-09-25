@@ -1,7 +1,8 @@
 // Registry entry for dashboard panel type "decision_log": reverse-
 // chronological table of time, question, answer, confidence, and latency.
-// Rows come from the workspace context: local judge runs on fixtures now,
-// BACKEND: the decisions table from Phase 4.
+// Rows come from the workspace context: on a live run they are the ledger
+// rows returned by the run-workflow Edge Function; on a preview run they are
+// the local mock results.
 
 import type { DashboardPanel } from '@/engine/types'
 import { formatAnswerValue, formatPercent, formatTime } from '@/lib/format'

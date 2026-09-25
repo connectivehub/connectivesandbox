@@ -1,8 +1,8 @@
 // Admin console: collapsible client/workflow rail (260px, hover flyout,
 // click pins), workflow-builder chat scoped to the selected client+workflow
 // (flex), and a 480px live preview column with raw-JSON editing, validation
-// status, and Publish. The builder chat runs on fixtures this phase; the
-// preview renders a loaded spec exactly as the workspace does.
+// status, and Publish. The builder chat streams through the admin-chat Edge
+// Function; the preview renders a loaded spec exactly as the workspace does.
 
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
@@ -338,7 +338,7 @@ export default function Admin() {
   const selectedClient = clients.find((client) => client.id === selectedClientId) ?? null
   const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null
 
-  // --- Client CRUD (fixtures: reversible by reload) ---
+  // --- Client CRUD (rides the admin-api gateway) ---
 
   const submitNewClient = async () => {
     const name = newClientName.trim()
