@@ -64,6 +64,49 @@
   clip-path: polygon(0 0, 100% 0, 100% 100%);
 }
 
+/* WhatsApp-style typing indicator (polish 4): three dots pulsing in an
+   incoming bubble. Reduced motion: the dots give way to a static "…". */
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #94a3b8; /* slate-400 — status colour, never accent */
+  animation: typing-pulse 1.2s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.typing-static {
+  display: none;
+}
+@keyframes typing-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots {
+    display: none;
+  }
+  .typing-static {
+    display: inline;
+  }
+}
+
 html,
 body,
 #root {

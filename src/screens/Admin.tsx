@@ -11,6 +11,9 @@ import { Building2, Check, ChevronDown, Pencil, Plus, Send, Trash2, Workflow, X 
 import AppTopBar from '@/components/AppTopBar'
 import WorkspaceBody from '@/components/workspace/WorkspaceBody'
 import { Bubble, DaySeparator, isNewDay } from '@/components/chat/Bubble'
+import { Markdown } from '@/components/chat/Markdown'
+import { TypingBubble } from '@/components/chat/TypingBubble'
+import { useStickToBottom } from '@/components/chat/useStickToBottom'
 import { CollapsibleRail } from '@/components/ui/CollapsibleRail'
 import { Badge, Eyebrow, PrimaryButton } from '@/components/ui/Primitives'
 import { safeParseWorkflowSpec } from '@/engine/schema'
@@ -219,6 +222,13 @@ export default function Admin() {
   const [messages, setMessages] = useState<BuilderChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [chatPending, setChatPending] = useState(false)
+
+  // Builder chat sticks to the newest message (send, streamed tokens,
+  // history load) unless the user deliberately scrolls up.
+  const { ref: chatScrollRef, onScroll: onChatScroll, stick: stickChat } = useStickToBottom()
+  useEffect(() => {
+    stickChat()
+  }, [messages, chatPending, stickChat])
 
   const [tab, setTab] = useState<'preview' | 'json'>('preview')
   const [specSource, setSpecSource] = useState('')
@@ -790,10 +800,24 @@ export default function Admin() {
           </div>
 
           <div
+            ref={chatScrollRef}
+            onScroll={onChatScroll}
             className="scroll-slim mx-5 my-4 min-h-0 flex-1 space-y-2.5 overflow-y-auto rounded-xl bg-slate-50 px-3 py-3"
             aria-label="Builder chat"
           >
-            {messages.map((message, index) => (
+            {messages.map((message, index) => {
+              // While the reply has not produced its first token, the typing
+              // bubble below stands in for it — no empty bubble shell.
+              if (
+                message.role === 'assistant' &&
+                message.content.length === 0 &&
+                message.spec === undefined &&
+                chatPending &&
+                index === messages.length - 1
+              ) {
+                return null
+              }
+              return (
               <div key={message.id} className="space-y-2.5">
                 {message.at !== undefined &&
                   isNewDay(index > 0 ? messages[index - 1].at : undefined, message.at) && (
@@ -804,21 +828,20 @@ export default function Admin() {
                   at={message.at ?? new Date().toISOString()}
                   sending={chatPending && index === messages.length - 1 && message.role === 'assistant'}
                 >
-                  <span className="whitespace-pre-wrap">{message.content}</span>
+                  {message.role === 'assistant' ? (
+                    <Markdown>{message.content}</Markdown>
+                  ) : (
+                    <span className="block whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.content}</span>
+                  )}
                   {message.spec !== undefined && (
                     <SpecBlock spec={message.spec} onLoad={loadSpecIntoPreview} />
                   )}
                 </Bubble>
               </div>
-            ))}
-            {chatPending && (messages.length === 0 || messages[messages.length - 1].role === 'user') && (
-              <div className="flex justify-start">
-                <div className="relative rounded-lg rounded-tl-none border border-slate-100 bg-white px-3 py-2 text-sm shadow-sm bubble-tail-in">
-                  <span aria-hidden="true" className="animate-pulse font-semibold text-accent">
-                    ▍
-                  </span>
-                </div>
-              </div>
+              )
+            })}
+            {chatPending && (messages.length === 0 || messages[messages.length - 1].role === 'user' || (messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].content.length === 0)) && (
+              <TypingBubble />
             )}
           </div>
 

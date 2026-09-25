@@ -82,7 +82,7 @@ export function Bubble({
       >
         {children}
         <div className="mt-1 flex items-center justify-end gap-1 text-[10px] leading-none text-slate-400">
-          <time>{timeLabel(at)}</time>
+          <time className="whitespace-nowrap">{timeLabel(at)}</time>
           {outgoing &&
             (sending ? (
               <Check size={11} aria-hidden="true" className="shrink-0" />
