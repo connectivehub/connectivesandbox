@@ -1,12 +1,17 @@
-// Registry entry for intake component type "file_upload": drag-and-drop zone,
-// file chips with name/size/thumbnail and remove control, spec instructions
-// inline. Files land in the workspace intake state; upload progress is a
-// short local progress simulation while the real upload happens on send.
+// Registry entry for intake component type "file_upload". Panel variant
+// (polish 3): drag-and-drop zone, file chips with name/size/thumbnail and
+// remove control, spec instructions inline — files land in the workspace
+// intake state. Inline variant (polish 4): the spec component renders as a
+// compact card inside the chat flow with NO standalone drop zone — its
+// "Add" button feeds the chat's shared attachment tray (files are handed to
+// the chat via onFiles, tagged with the component id, and the tray drop zone
+// is the chat panel itself). Upload happens on send, as before.
 
 import { useEffect, useRef, useState, type DragEvent } from 'react'
-import { FileText, Upload, X } from 'lucide-react'
+import { FileText, Paperclip, Upload, X } from 'lucide-react'
 
 import type { IntakeComponent } from '@/engine/types'
+import type { IntakeComponentViewProps } from '@/engine/registry'
 import { formatBytes } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Card, Eyebrow } from '@/components/ui/Primitives'
@@ -64,7 +69,8 @@ function FileChip({
 
 export type FileUploadComponent = Extract<IntakeComponent, { type: 'file_upload' }>
 
-export default function FileUpload({ component }: { component: FileUploadComponent }) {
+/** Panel variant: standalone upload card with its own drop zone (polish 3). */
+function FileUploadPanel({ component }: { component: FileUploadComponent }) {
   const { getIntakeValue, setIntakeValue, runStatus } = useWorkspace()
   const files = (getIntakeValue(component.id) as File[] | undefined) ?? []
   const [dragging, setDragging] = useState(false)
@@ -170,4 +176,69 @@ export default function FileUpload({ component }: { component: FileUploadCompone
       <p className="text-sm leading-relaxed text-slate-600">{component.instructions}</p>
     </Card>
   )
+}
+
+/**
+ * Inline variant (polish 4): compact in-chat attachment card. No drop zone —
+ * files drop anywhere on the chat panel; this card's control feeds the same
+ * attachment tray as the composer's paperclip, via onFiles.
+ */
+function FileUploadInline({
+  component,
+  onFiles,
+}: {
+  component: FileUploadComponent
+  onFiles?: (files: File[], sourceId: string) => void
+}) {
+  const { runStatus } = useWorkspace()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const disabled = runStatus === 'running'
+
+  const addFiles = (incoming: FileList | File[]) => {
+    if (onFiles === undefined) return
+    const accepted = Array.from(incoming).filter((file) => matchesAccept(file, component.accept))
+    if (accepted.length === 0) return
+    onFiles(component.multiple ? accepted : accepted.slice(0, 1), component.id)
+  }
+
+  return (
+    <div className="max-w-[85%] rounded-lg rounded-tl-none border border-slate-100 bg-white p-3 text-sm shadow-sm">
+      <p className="font-semibold tracking-tight text-ink">{component.label}</p>
+      <p className="mt-1 text-xs leading-relaxed text-slate-500">{component.instructions}</p>
+      <div className="mt-2.5 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={disabled}
+          className="inline-flex items-center gap-1.5 rounded-full border border-accent bg-white px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent-tint disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Paperclip size={13} aria-hidden="true" />
+          Add {component.multiple ? 'files' : 'a file'}
+        </button>
+        <span className="text-xs text-slate-400">{component.accept.join(', ')}</span>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={component.accept.join(',')}
+        multiple={component.multiple}
+        className="hidden"
+        onChange={(event) => {
+          if (event.target.files !== null) addFiles(event.target.files)
+          event.target.value = ''
+        }}
+      />
+    </div>
+  )
+}
+
+export default function FileUpload({
+  component,
+  variant,
+  onFiles,
+}: IntakeComponentViewProps) {
+  if (variant === 'inline') {
+    return <FileUploadInline component={component as FileUploadComponent} onFiles={onFiles} />
+  }
+  return <FileUploadPanel component={component as FileUploadComponent} />
 }

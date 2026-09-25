@@ -52,11 +52,14 @@ interface WorkspaceContextValue {
   run: () => void
   setIntakeValue: (id: string, value: unknown) => void
   getIntakeValue: (id: string) => unknown
-  /** Live chat: persist + stream one message (uploads attachments first). */
+  /** Live chat: persist + stream one message (uploads attachments first).
+   *  `filesBySlot` routes card-sourced files into their intake component's
+   *  slot so the judge state keeps the spec's keying. */
   sendChatMessage: (
     content: string,
     files: File[],
     onDelta?: (delta: string) => void,
+    filesBySlot?: Record<string, File[]>,
   ) => Promise<void>
   chatBusy: boolean
 }
@@ -263,18 +266,30 @@ export function WorkspaceProvider({
 
   /** Live chat: upload attachments → run the judges → stream the reply. */
   const sendChatMessage = useCallback(
-    async (content: string, files: File[], onDelta?: (delta: string) => void) => {
+    async (
+      content: string,
+      files: File[],
+      onDelta?: (delta: string) => void,
+      filesBySlot?: Record<string, File[]>,
+    ) => {
       if (mode !== 'live' || chatBusy) return
       setChatBusy(true)
       try {
         // Attachments ride the chat component's intake slot so the judge
-        // state sees their artifact descriptors.
+        // state sees their artifact descriptors; card-sourced files keep
+        // their own spec slot instead. With no chat component in the spec,
+        // files fall back to the first file_upload slot.
         const chatComponent = spec.intake.components.find(
           (component) => component.type === 'chat',
         )
+        const fallbackSlot = spec.intake.components.find(
+          (component) => component.type === 'file_upload',
+        )
+        const chatSlotId = chatComponent?.id ?? fallbackSlot?.id
         const stateWithChat: IntakeState = {
           ...intakeRef.current,
-          ...(chatComponent !== undefined ? { [chatComponent.id]: files } : {}),
+          ...(chatSlotId !== undefined && files.length > 0 ? { [chatSlotId]: files } : {}),
+          ...filesBySlot,
         }
         const { judgeState, artifactIds } = await prepareState(stateWithChat)
         const response = await runWorkflow(workflowId, judgeState, sessionRef.current?.id)

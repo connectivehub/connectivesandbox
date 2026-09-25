@@ -1,24 +1,34 @@
 // Registry entry for intake component type "chat": WhatsApp-Web-style
-// transcript (polish 3) — tailed bubbles, in-bubble timestamps with slate
-// ticks, sparse date separators, flat slate-50 chat surface. Files can be
-// dragged anywhere onto the panel or attached via the clip control; they wait
-// as preview chips above the composer and travel inside the sent message
-// bubble with a spinner until the run confirms — object URLs live as long as
-// the message renders, with a filename chip fallback when a thumbnail cannot.
-// Two modes (from the workspace context): 'preview' keeps the local echo
-// reply, 'live' streams the GLM reply from the client-chat Edge Function —
-// sending the message uploads the attachments to storage and triggers the
-// batched judge run, so submitting the intake IS the run.
+// transcript (polish 3, unified in polish 4). THE working surface is one chat
+// flow: every intake component from the spec renders as an inline interactive
+// card inside the flow at the point it occurs — file_upload becomes an
+// in-chat attachment card feeding the shared attachment tray (drop files
+// anywhere on the panel or use the paperclip; no standalone drop-zone
+// panel), form/button_group/text_field render as compact inline cards whose
+// submission posts into the flow like a message and collapses the card to a
+// compact sent state. Submitting the intake — chat send or card submission —
+// triggers the run exactly as before. The view sticks to the newest message
+// (send, streamed tokens, history load) unless the user scrolls up; while the
+// model generates a WhatsApp-style typing bubble shows, then the streamed
+// reply renders as brand-styled markdown. Two modes (from the workspace
+// context): 'preview' keeps the local echo reply, 'live' streams the GLM
+// reply from the client-chat Edge Function — sending the message uploads the
+// attachments to storage and triggers the batched judge run, so submitting
+// the intake IS the run.
 
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { FileText, Loader2, Paperclip, Send, X } from 'lucide-react'
+import { CheckCheck, FileText, Loader2, Paperclip, Send, X } from 'lucide-react'
 
 import type { IntakeComponent } from '@/engine/types'
+import { intakeRegistry } from '@/engine/registry'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/format'
 import { Card } from '@/components/ui/Primitives'
 import { Bubble, DaySeparator, isNewDay } from '@/components/chat/Bubble'
+import { Markdown } from '@/components/chat/Markdown'
+import { TypingBubble } from '@/components/chat/TypingBubble'
+import { useStickToBottom } from '@/components/chat/useStickToBottom'
 import { useWorkspace } from '@/state/workspace'
 import { getHistory } from '@/data/adapters/chat'
 
@@ -30,6 +40,8 @@ interface ChatAttachment {
   size: number
   url: string | null
   file: File
+  /** Intake component id the file came from (inline card), else composer/paperclip. */
+  source?: string
 }
 
 interface SentAttachment {
@@ -94,23 +106,62 @@ function SendingOverlay() {
   )
 }
 
-export default function Chat({ component }: { component: ChatComponent }) {
-  const { runStatus, run, mode, sendChatMessage, chatBusy, sessionId } = useWorkspace()
+/** Compact sent state for a submitted inline intake card. */
+function SubmittedChip({ label, summary }: { label: string; summary?: string }) {
+  return (
+    <div className="flex justify-end">
+      <span
+        className={cn(
+          'inline-flex max-w-[85%] items-center gap-1.5 rounded-full border border-accent/30 bg-accent-wash px-3 py-1 text-xs font-medium text-ink',
+        )}
+      >
+        <CheckCheck size={12} aria-hidden="true" className="shrink-0 text-slate-400" />
+        <span className="shrink-0 font-semibold">{label}</span>
+        {summary !== undefined && summary.length > 0 && (
+          <span className="truncate text-slate-500">{summary}</span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+export default function Chat({ component }: { component: ChatComponent | null }) {
+  const { spec, runStatus, run, mode, sendChatMessage, chatBusy, sessionId } =
+    useWorkspace()
   const [messages, setMessages] = useState<ChatEntry[]>([
-    { id: 'opening', role: 'assistant', content: component.opening_message, at: new Date().toISOString() },
+    {
+      id: 'opening',
+      role: 'assistant',
+      content:
+        component?.opening_message ??
+        (spec.description.length > 0
+          ? `${spec.description}\n\nTell me about the job and I will take it from there.`
+          : 'Tell me about the job and I will take it from there.'),
+      at: new Date().toISOString(),
+    },
   ])
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
   const [typing, setTyping] = useState<{ messageId: string; full: string } | null>(null)
   const [dragging, setDragging] = useState(false)
+  /** Component id → posted summary, for cards collapsed to their sent state. */
+  const [submittedCards, setSubmittedCards] = useState<Record<string, string>>({})
   const dragDepth = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const { ref: scrollRef, onScroll, stick } = useStickToBottom()
   const disabled = runStatus === 'running' || pending || chatBusy
   // Loaded-once guard: server history merges in when a session exists.
   const loadedSessionRef = useRef<string | null>(null)
   const canSend = draft.trim().length > 0 || attachments.length > 0
+
+  // The one chat flow carries every intake component: non-chat spec
+  // components render as inline cards at the point they occur.
+  const inlineComponents = spec.intake.components.filter(
+    (entry) => entry.type !== 'chat',
+  )
+  const inlineLabel = (entry: IntakeComponent): string =>
+    'label' in entry ? entry.label : 'Details'
 
   // Live mode: pull the persisted conversation for this session (real
   // `messages` rows) once the session is known.
@@ -151,17 +202,21 @@ export default function Chat({ component }: { component: ChatComponent }) {
     return () => window.clearInterval(timer)
   }, [typing])
 
+  // Stick to the newest message on send, streamed tokens, and history load —
+  // unless the user deliberately scrolled up (the hook pauses until they
+  // return to the bottom).
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [messages, attachments])
+    stick()
+  }, [messages, attachments, pending, typing, stick])
 
-  const addFiles = (files: FileList | File[]) => {
+  const addFiles = (files: FileList | File[], source?: string) => {
     const next = Array.from(files).map<ChatAttachment>((file) => ({
       id: `att_${Date.now()}_${file.name}`,
       name: file.name,
       size: file.size,
       url: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
       file,
+      source,
     }))
     setAttachments((previous) => [...previous, ...next])
   }
@@ -183,13 +238,31 @@ export default function Chat({ component }: { component: ChatComponent }) {
     if (!disabled && event.dataTransfer.files.length > 0) addFiles(event.dataTransfer.files)
   }
 
-  const send = () => {
-    const content = draft.trim()
-    if (content.length === 0 || disabled) return
+  /** Post one entry into the flow and trigger the run exactly as a chat send. */
+  const submit = (content: string, tray: ChatAttachment[]) => {
+    if (disabled || (content.trim().length === 0 && tray.length === 0)) return
     setDraft('')
     // Object URLs stay alive for the rendered message — never revoked on send.
-    const sent: SentAttachment[] = attachments.map(({ id, name, url }) => ({ id, name, url }))
-    const rawFiles = attachments.map(({ file }) => file)
+    const sent: SentAttachment[] = tray.map(({ id, name, url }) => ({ id, name, url }))
+    // Files picked up via an inline card land in that component's intake slot
+    // so the judge state keeps the spec's keying; composer files ride the
+    // chat slot as before.
+    const filesBySlot: Record<string, File[]> = {}
+    const plainFiles: File[] = []
+    for (const attachment of tray) {
+      if (attachment.source === undefined) {
+        plainFiles.push(attachment.file)
+      } else {
+        const sourceId = attachment.source
+        const bucket = filesBySlot[sourceId] ?? []
+        bucket.push(attachment.file)
+        filesBySlot[sourceId] = bucket
+        setSubmittedCards((previous) => ({
+          ...previous,
+          [sourceId]: `${tray.length} ${tray.length === 1 ? 'file' : 'files'} attached`,
+        }))
+      }
+    }
     setAttachments([])
     const sentAt = new Date().toISOString()
     setMessages((previous) => [
@@ -215,14 +288,14 @@ export default function Chat({ component }: { component: ChatComponent }) {
       ])
       setPending(true)
       let streamed = ''
-      void sendChatMessage(content, rawFiles, (delta) => {
+      void sendChatMessage(content, plainFiles, (delta) => {
         streamed += delta
         setMessages((previous) =>
           previous.map((message) =>
             message.id === replyId ? { ...message, content: streamed } : message,
           ),
         )
-      })
+      }, filesBySlot)
         .catch((error: unknown) => {
           const note = `Chat failed: ${error instanceof Error ? error.message : 'unknown error'}`
           setMessages((previous) =>
@@ -266,6 +339,18 @@ export default function Chat({ component }: { component: ChatComponent }) {
     }, 900)
   }
 
+  /** Inline card submitted: collapse the card, post the answer like a message. */
+  const submitCard = (componentId: string, summary: string) => {
+    setSubmittedCards((previous) => ({ ...previous, [componentId]: summary }))
+    submit(summary, [])
+  }
+
+  const send = () => {
+    const content = draft.trim()
+    if (content.length === 0 && attachments.length === 0) return
+    submit(content, attachments)
+  }
+
   return (
     <Card
       className="relative flex min-h-0 flex-1 flex-col gap-3 p-4"
@@ -301,33 +386,75 @@ export default function Chat({ component }: { component: ChatComponent }) {
           Flat slate-50 chat surface (brand recolour, no wallpaper image). */}
       <div
         ref={scrollRef}
+        onScroll={onScroll}
         className="scroll-slim min-h-16 flex-1 space-y-2.5 overflow-y-auto rounded-xl bg-slate-50 px-3 py-3"
       >
-        {messages.map((message, index) => (
-          <div key={message.id} className="space-y-2.5">
-            {isNewDay(index > 0 ? messages[index - 1].at : undefined, message.at) && (
-              <DaySeparator iso={message.at} />
-            )}
-            <Bubble role={message.role} at={message.at} sending={message.sending}>
-              {message.attachments !== undefined && message.attachments.length > 0 && (
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {message.attachments.map((attachment) => (
-                    <span key={attachment.id} className="relative">
-                      <AttachmentThumb attachment={attachment} className="h-14 w-14" />
-                      {message.sending === true && <SendingOverlay />}
+        {/* Inline intake cards — the spec's intake flow inside the one chat. */}
+        {inlineComponents.map((entry) => {
+          if (submittedCards[entry.id] !== undefined) {
+            return (
+              <SubmittedChip
+                key={entry.id}
+                label={inlineLabel(entry)}
+                summary={
+                  entry.type === 'file_upload' ? submittedCards[entry.id] : undefined
+                }
+              />
+            )
+          }
+          const Comp = intakeRegistry[entry.type]
+          return (
+            <Comp
+              key={entry.id}
+              component={entry}
+              variant="inline"
+              onFiles={(files, sourceId) => addFiles(files, sourceId)}
+              onSubmitted={(summary) => submitCard(entry.id, summary)}
+            />
+          )
+        })}
+
+        {messages.map((message, index) => {
+          const awaitingFirstToken =
+            pending && message.role === 'assistant' && message.content.length === 0
+          return (
+            <div key={message.id} className="space-y-2.5">
+              {isNewDay(index > 0 ? messages[index - 1].at : undefined, message.at) && (
+                <DaySeparator iso={message.at} />
+              )}
+              {awaitingFirstToken ? (
+                // WhatsApp-style typing bubble, replaced by the streamed reply
+                // as tokens arrive.
+                <TypingBubble />
+              ) : (
+                <Bubble role={message.role} at={message.at} sending={message.sending}>
+                  {message.attachments !== undefined && message.attachments.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                      {message.attachments.map((attachment) => (
+                        <span key={attachment.id} className="relative">
+                          <AttachmentThumb attachment={attachment} className="h-14 w-14" />
+                          {message.sending === true && <SendingOverlay />}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {message.role === 'assistant' ? (
+                    <Markdown>{message.content}</Markdown>
+                  ) : (
+                    <span className="block whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                      {message.content}
                     </span>
-                  ))}
-                </div>
+                  )}
+                  {typing?.messageId === message.id && (
+                    <span aria-hidden="true" className="ml-0.5 animate-pulse font-semibold text-accent">
+                      ▍
+                    </span>
+                  )}
+                </Bubble>
               )}
-              <span className="whitespace-pre-wrap">{message.content}</span>
-              {(typing?.messageId === message.id || (pending && message.role === 'assistant')) && (
-                <span aria-hidden="true" className="ml-0.5 animate-pulse font-semibold text-accent">
-                  ▍
-                </span>
-              )}
-            </Bubble>
-          </div>
-        ))}
+            </div>
+          )
+        })}
       </div>
 
       <AnimatePresence initial={false}>
@@ -416,7 +543,7 @@ export default function Chat({ component }: { component: ChatComponent }) {
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder={component.placeholder}
+          placeholder={component?.placeholder ?? 'Type a message…'}
           disabled={disabled}
           aria-label="Message"
           className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-ink placeholder:text-slate-400 focus:border-accent focus:outline-none disabled:opacity-50"

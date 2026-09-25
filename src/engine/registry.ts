@@ -13,6 +13,12 @@ import type { DashboardPanel, IntakeComponent } from './types'
 export interface IntakeComponentViewProps {
   component: IntakeComponent
   disabled?: boolean
+  /** 'panel' (standalone card, default) or 'inline' (compact card inside the chat flow). */
+  variant?: 'panel' | 'inline'
+  /** Inline file pickers: hand files to the chat's attachment tray, tagged with the component id. */
+  onFiles?: (files: File[], sourceId: string) => void
+  /** Inline card submission: posts the answer into the chat flow like a message. */
+  onSubmitted?: (summary: string) => void
 }
 
 /** Props every dashboard panel renderer receives; implementations narrow internally. */
@@ -40,7 +46,13 @@ function lazyPanel<P extends DashboardPanelViewProps>(
 
 export const intakeRegistry: IntakeRegistry = {
   file_upload: lazyIntake(() => import('@/components/FileUpload')),
-  chat: lazyIntake(() => import('@/components/Chat')),
+  // The chat flow renders itself (IntakeSurface mounts Chat directly so the
+  // one flow can carry the other intake components as inline cards); the
+  // registry entry stays complete for spec coverage.
+  chat: lazyIntake(async () => {
+    const mod = await import('@/components/Chat')
+    return { default: mod.default as unknown as ComponentType<IntakeComponentViewProps> }
+  }),
   button_group: lazyIntake(() => import('@/components/ButtonGroup')),
   text_field: lazyIntake(() => import('@/components/TextField')),
   form: lazyIntake(() => import('@/components/Form')),
