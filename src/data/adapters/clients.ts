@@ -1,58 +1,98 @@
-// BACKEND: Supabase `clients` table (RLS-scoped to the caller's organisation)
-// replaces these fixture reads and writes in Phase 4. CRUD lives on fixtures
-// this phase, so admin actions are real but reversible by reload.
+// Real clients adapter (Phase 5). Admin CRUD rides the `admin-api` Edge
+// Function gateway (admin cookie verified server-side, service_role applied
+// inside the function — never in the browser). Same signatures as the
+// Phase 1–3 fixture adapter; slug is derived from the name since the clients
+// table has no slug column.
 
 import type { Client, UsageSnapshot } from '@/data/types'
-import { clients, usage } from '@/data/fixtures/records'
+import { assertOk, callFunction, type FunctionResponse } from '@/data/api'
 
-// Mutable fixture stores — module-level so admin CRUD round-trips stick.
-const clientStore: Client[] = [...clients]
-const codeStore: Record<string, string> = {
-  clt_001: '4173',
-  clt_002: '8092',
+interface ClientRow {
+  id: string
+  name: string
+  contact: string | null
+  created_at: string
+  is_active: boolean
+}
+
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+function toClient(row: ClientRow): Client {
+  return {
+    id: row.id,
+    name: row.name,
+    slug: slugify(row.name),
+    created_at: row.created_at,
+  }
+}
+
+function withData<T>(response: FunctionResponse<T>): T {
+  assertOk(response as unknown as FunctionResponse<{ error?: string }>)
+  return response.data
 }
 
 export async function listClients(): Promise<Client[]> {
-  return clientStore
+  const { clients } = withData(
+    await callFunction<{ clients: ClientRow[] }>('/admin-api/clients'),
+  )
+  return clients.map(toClient)
 }
 
 export async function getClient(id: string): Promise<Client | null> {
-  return clientStore.find((client) => client.id === id) ?? null
+  const rows = await listClients()
+  return rows.find((client) => client.id === id) ?? null
 }
 
+/** Sandbox trade-off: codes are stored plaintext and read out over WhatsApp. */
 export async function getClientAccessCode(clientId: string): Promise<string | null> {
-  return codeStore[clientId] ?? null
+  const response = await callFunction<{ access_code?: string; error?: string }>(
+    `/admin-api/clients/${clientId}/access-code`,
+  )
+  if (response.status === 404) return null
+  assertOk(response as unknown as FunctionResponse<{ error?: string }>)
+  return response.data.access_code ?? null
 }
 
 export async function createClient(name: string, code: string): Promise<Client> {
-  const id = `clt_local_${Date.now()}`
-  const client: Client = {
-    id,
-    name,
-    slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || id,
-    created_at: new Date().toISOString(),
-  }
-  clientStore.push(client)
-  codeStore[id] = code
-  return client
+  const { client } = withData(
+    await callFunction<{ client: ClientRow }>('/admin-api/clients', {
+      method: 'POST',
+      body: { name, access_code: code },
+    }),
+  )
+  return toClient(client)
 }
 
 export async function renameClient(clientId: string, name: string): Promise<void> {
-  const client = clientStore.find((entry) => entry.id === clientId)
-  if (client) {
-    client.name = name
-    client.slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || client.slug
-  }
+  withData(
+    await callFunction(`/admin-api/clients/${clientId}`, {
+      method: 'PATCH',
+      body: { name },
+    }),
+  )
 }
 
 export async function deleteClient(clientId: string): Promise<void> {
-  const index = clientStore.findIndex((entry) => entry.id === clientId)
-  if (index !== -1) clientStore.splice(index, 1)
-  delete codeStore[clientId]
+  withData(await callFunction(`/admin-api/clients/${clientId}`, { method: 'DELETE' }))
 }
 
 export async function getUsageSnapshot(clientId: string, period: string): Promise<UsageSnapshot | null> {
-  return usage.find((snapshot) => snapshot.client_id === clientId && snapshot.period === period) ?? null
+  const response = await callFunction<{
+    sessions?: number
+    judge_calls?: number
+    error?: string
+  }>(`/admin-api/usage/snapshot?client_id=${encodeURIComponent(clientId)}`)
+  if (response.status === 404) return null
+  assertOk(response as unknown as FunctionResponse<{ error?: string }>)
+  return {
+    client_id: clientId,
+    period,
+    sessions: response.data.sessions ?? 0,
+    judge_calls: response.data.judge_calls ?? 0,
+    tokens: 0,
+  }
 }
 
 export interface OrgUsageTotals {
@@ -62,8 +102,10 @@ export interface OrgUsageTotals {
 
 /** Organisation-wide totals for the usage_counter panel. */
 export async function getOrgUsageTotals(): Promise<OrgUsageTotals> {
-  return {
-    runsThisMonth: usage.reduce((total, snapshot) => total + snapshot.sessions, 0),
-    decisionsMade: usage.reduce((total, snapshot) => total + snapshot.judge_calls, 0),
-  }
+  const data = withData(
+    await callFunction<{ runsThisMonth: number; decisionsMade: number }>(
+      '/admin-api/usage/totals',
+    ),
+  )
+  return { runsThisMonth: data.runsThisMonth, decisionsMade: data.decisionsMade }
 }

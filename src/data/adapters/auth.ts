@@ -1,41 +1,82 @@
-// BACKEND: Supabase auth (GoTrue) replaces this fixture code verification in
-// Phase 5 — server-side validation, real session tokens, no secrets in the
-// browser. Same signatures: callers pass a four-digit access code and receive
-// the tenant role the console opens into, or an error for an unknown code.
+// Real auth adapter (Phase 5). Codes are validated EXCLUSIVELY server-side by
+// the `auth-code` Edge Function: the browser never sees a code list, a session
+// JWT arrives in an httpOnly cookie, and session state is read from that
+// cookie. Same signatures as the Phase 1–3 fixture adapter.
 
 import type { AuthSession, User } from '@/data/types'
-import { users } from '@/data/fixtures/records'
+import { ApiError, callFunction } from '@/data/api'
 
 export type AccessRole = 'admin' | 'workspace'
 
-// Fixture contract: 0136 opens the admin console, 4821 opens a workspace.
-// The mapping lives here, not in the UI, so Phase 5 can move it server-side
-// without touching the screens.
-const ACCESS_CODES: Record<string, AccessRole> = {
-  '0136': 'admin',
-  '4821': 'workspace',
+export interface ConsoleSession {
+  role: 'admin' | 'client'
+  client_id: string | null
 }
 
+interface AuthCodeResponse {
+  role?: string
+  client_id?: string | null
+  authenticated?: boolean
+  error?: string
+}
+
+/** Verify a four-digit access code and establish the server-side session. */
 export async function verifyAccessCode(code: string): Promise<AccessRole> {
-  const role = ACCESS_CODES[code]
-  if (!role) {
-    throw new Error('Incorrect access code')
+  const { status, data } = await callFunction<AuthCodeResponse>('/auth-code', {
+    method: 'POST',
+    body: { code },
+  })
+  if (status === 200 && data.role === 'admin') return 'admin'
+  if (status === 200 && data.role === 'client') return 'workspace'
+  if (status === 429) {
+    throw new ApiError(data.error ?? 'Too many attempts. Try again later.', 429)
   }
-  return role
+  throw new ApiError(data.error ?? 'Incorrect access code', status)
 }
 
-export async function signIn(email: string, password: string): Promise<AuthSession> {
-  const user = users.find((candidate) => candidate.email === email.toLowerCase())
-  if (!user || password.length === 0) {
-    throw new Error('Invalid email or password')
+/**
+ * Read the current session from the httpOnly cookie (server-side resolution —
+ * the token itself is never readable from JS). Returns null when signed out.
+ */
+export async function getSession(): Promise<ConsoleSession | null> {
+  try {
+    const { status, data } = await callFunction<AuthCodeResponse>('/auth-code')
+    if (status === 200 && data.authenticated && (data.role === 'admin' || data.role === 'client')) {
+      return { role: data.role, client_id: data.client_id ?? null }
+    }
+    return null
+  } catch {
+    // No backend reachable (e.g. offline dev) — treat as signed out.
+    return null
   }
-  return { user, token: `fixture-token-${user.id}` }
 }
 
+/** Clear the session cookie. */
 export async function signOut(): Promise<void> {
-  // Fixture: nothing to invalidate.
+  await callFunction('/auth-code', { method: 'DELETE' })
 }
 
+// Email/password sign-in is not part of this console (access codes only);
+// the signature is kept for adapter-shape parity with the data contract.
+export async function signIn(email: string, password: string): Promise<AuthSession> {
+  void password
+  throw new ApiError(
+    `Password sign-in is not available for ${email}. Use your four-digit access code.`,
+    400,
+  )
+}
+
+/** Best-effort current user derived from the cookie session. */
 export async function getCurrentUser(): Promise<User | null> {
-  return users[0] ?? null
+  const session = await getSession()
+  if (!session) return null
+  if (session.role === 'admin') {
+    return { id: 'admin', email: '', name: 'Console administrator', role: 'admin' }
+  }
+  return {
+    id: session.client_id ?? 'client',
+    email: '',
+    name: 'Client',
+    role: 'owner',
+  }
 }

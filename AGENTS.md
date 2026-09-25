@@ -37,6 +37,35 @@ dependencies beyond the standard scaffold set without a captain decision.
   malformed specs
 - `npm run dev` / `npm run preview` / `npm run lint`
 
+## Phase 5 — auth & gateway decisions
+
+- **No new npm dependencies.** Both the adapters and the Edge Functions use
+  plain `fetch`; supabase-js was rejected as unnecessary machinery (the browser
+  never talks to PostgREST directly — everything rides the gateway).
+- **Same-origin function calls.** The session cookie is `SameSite=Strict`, so
+  the browser must send it same-site: adapters call the relative path
+  `/functions/v1/…`, and the host proxies it to the Supabase project (Vite
+  dev/preview proxy here; an equivalent same-origin rewrite in production).
+  Cookie: `cs_session`, `HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age
+  86400`.
+- **JWT claims.** The spec's `{ role: 'admin' | 'client', client_id }` is
+  carried as `app_role` because PostgREST reserves `role` for the database
+  role; the JWT sets `role: 'authenticated'` plus `app_role`/`client_id`, so
+  RLS policies accept it directly. Signed HS256 with the platform JWT secret:
+  this project's hosted runtime does not inject `SUPABASE_JWT_SECRET`, so the
+  Edge secret `JWT_SECRET` (set in Phase 4 for this purpose) is used, with a
+  `SUPABASE_JWT_SECRET` fallback for portability.
+- **Rate limiters** live in the `auth_attempts` table (shared across
+  isolates): 5 failed attempts per IP / 15 min → 1-hour lockout; 50 attempts
+  per hour for any one code across all IPs. Every attempt is logged with a
+  SHA-256 HASHED code — plaintext codes are never logged.
+- **Gateway split.** `auth-code` issues sessions (POST), resolves them (GET),
+  and clears them (DELETE). `admin-api` verifies the cookie server-side and
+  performs admin CRUD with `service_role` internally; client sessions may only
+  read their own workflows (mirroring the RLS scope, enforced server-side).
+- **CORS** is an explicit allow-list (localhost dev ports + the
+  `ALLOWED_ORIGINS` Edge secret); no wildcard with credentials.
+
 ## Brand
 
 Connective Labs: single accent `#FF6B35`, ink `#091426`, Tailwind **slate**
