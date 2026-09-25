@@ -19,9 +19,13 @@ export default function Login() {
       try {
         const role = await verifyAccessCode(candidate)
         navigate(role === 'admin' ? '/admin' : '/workspace')
-      } catch {
+      } catch (error) {
         setCode('')
-        setError('Incorrect access code. Try again.')
+        setError(
+          error instanceof Error && error.message.length > 0
+            ? error.message
+            : 'Incorrect access code. Try again.',
+        )
         setShake(true)
       } finally {
         submittingRef.current = false
